@@ -38,45 +38,52 @@ export default function Home() {
   // Initialize
   useEffect(() => {
     async function init() {
-      dbRef.current = new GunDatabaseAdapter();
-      const db = dbRef.current;
-      const keyring = getKeyring();
+      try {
+        dbRef.current = new GunDatabaseAdapter();
+        const db = dbRef.current;
+        const keyring = getKeyring();
 
-      // Subscribe to Gun.js for sync
-      const unsubscribe = db.subscribe<GunFileMetadata & { magnetURI?: string }>('files', async (syncedFiles) => {
-        setSyncStatus('synced');
+        // Subscribe to Gun.js for sync
+        const unsubscribe = db.subscribe<GunFileMetadata & { magnetURI?: string }>('files', async (syncedFiles) => {
+          setSyncStatus('synced');
 
-        const files: StoredFile[] = await Promise.all(
-          Object.values(syncedFiles)
-            .filter((meta) => meta && meta.id)
-            .map(async (meta) => {
-              // Check if we can decrypt this file
-              const canDecrypt = meta.encrypted ? await keyring.hasKey(meta.id) : true;
-              
-              return {
-                id: meta.id,
-                name: meta.name,
-                size: meta.size,
-                type: meta.originalType || meta.type,
-                uploadedAt: meta.createdAt,
-                deviceId: meta.deviceId,
-                magnetURI: meta.magnetURI,
-                visibility: meta.visibility || 'public',
-                encrypted: meta.encrypted || false,
-                canDecrypt,
-              };
-            })
-        );
+          const files: StoredFile[] = await Promise.all(
+            Object.values(syncedFiles)
+              .filter((meta) => meta && meta.id)
+              .map(async (meta) => {
+                // Check if we can decrypt this file
+                const canDecrypt = meta.encrypted ? await keyring.hasKey(meta.id) : true;
 
-        setStoredFiles(files);
-      });
+                return {
+                  id: meta.id,
+                  name: meta.name,
+                  size: meta.size,
+                  type: meta.originalType || meta.type,
+                  uploadedAt: meta.createdAt,
+                  deviceId: meta.deviceId,
+                  magnetURI: meta.magnetURI,
+                  visibility: meta.visibility || 'public',
+                  encrypted: meta.encrypted || false,
+                  canDecrypt,
+                };
+              })
+          );
 
-      setTimeout(() => {
-        setSyncStatus('synced');
+          setStoredFiles(files);
+        });
+
+        setTimeout(() => {
+          setSyncStatus('synced');
+          setIsLoading(false);
+        }, 1500);
+
+        return () => unsubscribe();
+      } catch (err) {
+        console.error('Initialization failed:', err);
+        // Fallback so app still loads
         setIsLoading(false);
-      }, 1500);
-
-      return () => unsubscribe();
+        setSyncStatus('offline');
+      }
     }
 
     init();
@@ -184,7 +191,7 @@ export default function Home() {
   const handlePreviewFile = async (id: string) => {
     try {
       const file = storedFiles.find(f => f.id === id);
-      
+
       if (!file) {
         console.error('File not found');
         return;
@@ -198,7 +205,7 @@ export default function Home() {
           if (file.visibility === 'password-protected') {
             const password = window.prompt('Enter password to decrypt this file:');
             if (!password) return;
-            
+
             try {
               blob = await storage.downloadWithPassword(id, password);
             } catch (error) {

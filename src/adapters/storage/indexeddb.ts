@@ -43,6 +43,8 @@ function openDatabase(): Promise<IDBDatabase> {
  * IndexedDB Storage Adapter
  * 
  * Provides permanent file storage in the browser.
+ * Note: This adapter is primarily for local storage and doesn't support
+ * the private/password-protected encryption flows (use WebTorrent adapter for that).
  * 
  * @example
  * ```typescript
@@ -77,6 +79,7 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
                     cid: id,
                     url: `indexeddb://${id}`,
                     size: file.size,
+                    visibility: 'public', // IndexedDB adapter is local-only, so visibility is always public
                 });
             };
 

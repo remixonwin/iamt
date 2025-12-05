@@ -14,6 +14,46 @@ test.describe('Homepage', () => {
         await expect(page.getByText('P2P Torrent Storage')).toBeVisible();
     });
 
+    // New Test: Check visibility
+    test('should display visibility badge for public files', async ({ page }) => {
+        const buffer = Buffer.from('public file');
+        await page.setInputFiles('input[type="file"]', {
+            name: 'public-doc.pdf',
+            mimeType: 'application/pdf',
+            buffer,
+        });
+
+        // Switch to My Files
+        await page.getByRole('button', { name: /my files/i }).click();
+
+        // Should show "Public" badge
+        await expect(page.getByText('Public', { exact: true }).first()).toBeVisible({ timeout: 10000 });
+    });
+
+    // New Test: Delete file
+    test('should delete a file', async ({ page }) => {
+        const buffer = Buffer.from('file to delete');
+        await page.setInputFiles('input[type="file"]', {
+            name: 'delete-me.txt',
+            mimeType: 'text/plain',
+            buffer,
+        });
+
+        await page.getByRole('button', { name: /my files/i }).click();
+
+        // Find file card and delete
+        const fileCard = page.locator('.glass-card').filter({ hasText: 'delete-me.txt' });
+        await expect(fileCard).toBeVisible();
+
+        // Hover to show delete button
+        await fileCard.hover();
+        const deleteBtn = fileCard.locator('button'); // The delete button inside the card
+        await deleteBtn.click();
+
+        // Should be gone
+        await expect(fileCard).toBeHidden({ timeout: 5000 });
+    });
+
     test('should have upload tab selected by default', async ({ page }) => {
         const uploadButton = page.getByRole('button', { name: /upload/i });
         await expect(uploadButton).toBeVisible();

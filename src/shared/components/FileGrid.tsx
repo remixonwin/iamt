@@ -10,6 +10,9 @@ interface FileGridProps {
         type: string;
         preview?: string;
         uploadedAt: number;
+        visibility?: 'public' | 'private' | 'password-protected';
+        encrypted?: boolean;
+        canDecrypt?: boolean;
     }>;
     onDelete: (id: string) => void;
     onPreview: (id: string) => void;
@@ -83,8 +86,34 @@ export function FileGrid({ files, onDelete, onPreview }: FileGridProps) {
                         {/* File Info */}
                         <div className="relative">
                             <p className="font-medium text-sm truncate pr-6">{file.name}</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                                {formatFileSize(file.size)}
+                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1 flex-wrap">
+                                <span>{formatFileSize(file.size)}</span>
+                                {file.visibility === 'public' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                        Public
+                                    </span>
+                                )}
+                                {file.visibility === 'private' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                        </svg>
+                                        Private
+                                    </span>
+                                )}
+                                {file.visibility === 'password-protected' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 flex items-center gap-1">
+                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                        </svg>
+                                        PWD
+                                    </span>
+                                )}
+                                {file.encrypted && !file.canDecrypt && (
+                                    <span className="px-1 py-0.5 rounded text-[9px] bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-bold">
+                                        🔒 Can't decrypt
+                                    </span>
+                                )}
                             </p>
 
                             {/* Delete Button */}

@@ -9,26 +9,30 @@ export {
     type FileTypeInfo,
 } from './fileTypes';
 
-// Encryption utilities
+// Encryption & Security
 export {
     encryptFile,
-    decryptFile,
     encryptFileWithPassword,
+    decryptFile,
     decryptFileWithPassword,
     generateEncryptionKey,
     exportKey,
     importKey,
+    deriveKeyFromPassword,
     hashFile,
     isCryptoSupported,
+    generateIV,
+    generateSalt,
     arrayBufferToBase64,
     base64ToArrayBuffer,
+    arrayBufferToHex,
     uint8ArrayToBase64,
     type EncryptionResult,
     type DecryptionParams,
     type PasswordEncryptionResult,
 } from './crypto';
 
-// Local keyring for encryption keys
+// Keyring
 export {
     LocalKeyring,
     getKeyring,

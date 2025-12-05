@@ -59,8 +59,10 @@ export const downloadFileP2P = (magnetURI: string): Promise<Blob> => {
 
         // Check if we already have it
         const existing = client.get(magnetURI);
-        if (existing && existing.progress === 1) {
-            existing.files[0].getBlob((err, blob) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (existing && (existing as any).progress === 1) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (existing as any).files[0].getBlob((err: Error | null, blob: Blob | null) => {
                 if (err || !blob) reject(err);
                 else resolve(blob);
             });
@@ -76,7 +78,8 @@ export const downloadFileP2P = (magnetURI: string): Promise<Blob> => {
 
         torrent.on('done', () => {
             console.log('[P2P] Download complete:', torrent.infoHash);
-            torrent.files[0].getBlob((err, blob) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (torrent as any).files[0].getBlob((err: Error | null, blob: Blob | null) => {
                 if (err || !blob) reject(err);
                 else resolve(blob);
             });

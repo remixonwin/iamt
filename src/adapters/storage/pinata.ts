@@ -75,6 +75,7 @@ export class PinataStorageAdapter implements StorageAdapter {
             cid,
             url: `${PINATA_GATEWAY}/${cid}`,
             size: file.size,
+            visibility: 'public', // IPFS/Pinata files are publicly accessible by CID
         };
     }
 

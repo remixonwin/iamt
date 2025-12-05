@@ -22,6 +22,7 @@ export class MockStorageAdapter implements StorageAdapter {
             cid,
             url: `https://mock.storage/${cid}`,
             size: file.size,
+            visibility: 'public',
         };
 
         this.store.set(cid, { file, metadata: result });

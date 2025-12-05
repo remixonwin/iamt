@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/test-results
+/playwright-report
 
 # next.js
 /.next/
@@ -39,3 +41,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# P2P storage data (local dev only)
+/relay/data
+/storage/files
+
+# Security - never commit sensitive data
+*.key
+*.pem
+*.cert
+secrets.json

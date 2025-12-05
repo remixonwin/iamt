@@ -33,8 +33,8 @@ export interface PasswordEncryptionResult {
  * Check if Web Crypto API is available
  */
 export function isCryptoSupported(): boolean {
-    return typeof crypto !== 'undefined' && 
-           typeof crypto.subtle !== 'undefined';
+    return typeof crypto !== 'undefined' &&
+        typeof crypto.subtle !== 'undefined';
 }
 
 /**
@@ -74,7 +74,7 @@ export async function exportKey(key: CryptoKey): Promise<string> {
  * Import a key from Base64 string
  */
 export async function importKey(exportedKey: string): Promise<CryptoKey> {
-    const rawKey = base64ToArrayBuffer(exportedKey);
+    const rawKey = base64ToArrayBuffer(exportedKey) as unknown as ArrayBuffer;
     return crypto.subtle.importKey(
         'raw',
         rawKey,
@@ -96,7 +96,7 @@ export async function deriveKeyFromPassword(
     salt: Uint8Array
 ): Promise<CryptoKey> {
     const encoder = new TextEncoder();
-    
+
     // Import password as key material
     const passwordKey = await crypto.subtle.importKey(
         'raw',
@@ -105,7 +105,7 @@ export async function deriveKeyFromPassword(
         false,
         ['deriveBits', 'deriveKey']
     );
-    
+
     // Derive AES-256 key using PBKDF2
     return crypto.subtle.deriveKey(
         {
@@ -130,27 +130,27 @@ export async function deriveKeyFromPassword(
 export async function encryptFile(file: File): Promise<EncryptionResult> {
     const key = await generateEncryptionKey();
     const iv = generateIV();
-    
+
     const arrayBuffer = await file.arrayBuffer();
-    
+
     const encryptedData = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: new Uint8Array(iv) },
         key,
-        arrayBuffer
+        new Uint8Array(arrayBuffer)
     );
-    
+
     // Create encrypted blob (loses original mime type for security)
-    const encryptedBlob = new Blob([encryptedData], { 
-        type: 'application/octet-stream' 
+    const encryptedBlob = new Blob([encryptedData], {
+        type: 'application/octet-stream'
     });
-    
+
     const exportedKey = await exportKey(key);
-    
-    return { 
-        encryptedBlob, 
-        key, 
-        iv, 
-        exportedKey 
+
+    return {
+        encryptedBlob,
+        key,
+        iv,
+        exportedKey
     };
 }
 
@@ -162,25 +162,25 @@ export async function encryptFile(file: File): Promise<EncryptionResult> {
  * @returns Encrypted blob and salt/IV for decryption
  */
 export async function encryptFileWithPassword(
-    file: File, 
+    file: File,
     password: string
 ): Promise<PasswordEncryptionResult> {
     const salt = generateSalt();
     const iv = generateIV();
     const key = await deriveKeyFromPassword(password, salt);
-    
+
     const arrayBuffer = await file.arrayBuffer();
-    
+
     const encryptedData = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: new Uint8Array(iv) },
         key,
-        arrayBuffer
+        new Uint8Array(arrayBuffer)
     );
-    
-    const encryptedBlob = new Blob([encryptedData], { 
-        type: 'application/octet-stream' 
+
+    const encryptedBlob = new Blob([encryptedData], {
+        type: 'application/octet-stream'
     });
-    
+
     return {
         encryptedBlob,
         salt: arrayBufferToBase64(salt.buffer),
@@ -200,20 +200,20 @@ export async function decryptFile(
     originalType?: string
 ): Promise<Blob> {
     const { encryptedBlob, exportedKey, iv } = params;
-    
+
     const key = await importKey(exportedKey);
     const ivBytes = base64ToArrayBuffer(iv);
-    
+
     const encryptedData = await encryptedBlob.arrayBuffer();
-    
+
     const decryptedData = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new Uint8Array(ivBytes) },
         key,
-        encryptedData
+        new Uint8Array(encryptedData)
     );
-    
-    return new Blob([decryptedData], { 
-        type: originalType || 'application/octet-stream' 
+
+    return new Blob([decryptedData], {
+        type: originalType || 'application/octet-stream'
     });
 }
 
@@ -237,17 +237,17 @@ export async function decryptFileWithPassword(
     const saltBytes = base64ToArrayBuffer(salt);
     const ivBytes = base64ToArrayBuffer(iv);
     const key = await deriveKeyFromPassword(password, new Uint8Array(saltBytes));
-    
+
     const encryptedData = await encryptedBlob.arrayBuffer();
-    
+
     const decryptedData = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new Uint8Array(ivBytes) },
         key,
-        encryptedData
+        new Uint8Array(encryptedData)
     );
-    
-    return new Blob([decryptedData], { 
-        type: originalType || 'application/octet-stream' 
+
+    return new Blob([decryptedData], {
+        type: originalType || 'application/octet-stream'
     });
 }
 
@@ -256,7 +256,7 @@ export async function decryptFileWithPassword(
  */
 export async function hashFile(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', new Uint8Array(arrayBuffer));
     return arrayBufferToHex(hashBuffer);
 }
 
@@ -277,13 +277,13 @@ export function arrayBufferToBase64(buffer: ArrayBufferLike): string {
 /**
  * Convert Base64 string to ArrayBuffer
  */
-export function base64ToArrayBuffer(base64: string): ArrayBuffer {
+export function base64ToArrayBuffer(base64: string): Uint8Array {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
     }
-    return bytes.buffer;
+    return bytes;
 }
 
 /**

@@ -4,8 +4,8 @@ import { FileGrid } from '@/shared/components/FileGrid';
 
 // Default mock files
 const mockFiles = [
-    { id: '1', name: 'test1.txt', size: 1024, type: 'text/plain', uploadedAt: Date.now() },
-    { id: '2', name: 'image.png', size: 5000, type: 'image/png', preview: 'blob:img', uploadedAt: Date.now() },
+    { id: '1', name: 'test1.txt', size: 1024, type: 'text/plain', uploadedAt: Date.now(), visibility: 'public' as const },
+    { id: '2', name: 'image.png', size: 5000, type: 'image/png', preview: 'blob:img', uploadedAt: Date.now(), visibility: 'private' as const },
 ];
 
 describe('FileGrid', () => {
@@ -13,6 +13,7 @@ describe('FileGrid', () => {
         render(<FileGrid files={mockFiles} onDelete={() => { }} onPreview={() => { }} />);
         expect(screen.getByText('test1.txt')).toBeInTheDocument();
         expect(screen.getByText('image.png')).toBeInTheDocument();
+        expect(screen.getByText('Public')).toBeInTheDocument();
     });
 
     it('should show empty state when no files', () => {

@@ -16,3 +16,14 @@ if (!Blob.prototype.text) {
         });
     };
 }
+
+if (!Blob.prototype.arrayBuffer) {
+    Blob.prototype.arrayBuffer = async function () {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as ArrayBuffer);
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(this);
+        });
+    };
+}
