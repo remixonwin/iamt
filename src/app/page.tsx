@@ -5,8 +5,8 @@ import { FileUploader, FilePreview, FileGrid, type UploadedFile } from '@/shared
 import { WebTorrentStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
 
-// P2P Storage server via localtunnel
-const STORAGE_API = 'https://iamt-storage.loca.lt';
+// P2P Storage server - Use env var or default to public tunnel, fallback to localhost for dev/test
+const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'https://iamt-storage.loca.lt';
 
 // Initialize storage
 const storage = new WebTorrentStorageAdapter(STORAGE_API);

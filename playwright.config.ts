@@ -47,7 +47,7 @@ export default defineConfig({
 
     /* Run local dev server before starting tests */
     webServer: {
-        command: 'npm run dev',
+        command: 'NEXT_PUBLIC_STORAGE_API=http://localhost:3001 npm run dev',
         url: 'http://localhost:3000',
         reuseExistingServer: !process.env.CI,
         timeout: 120 * 1000,
