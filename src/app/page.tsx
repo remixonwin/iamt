@@ -1,8 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FileUploader, FilePreview, FileGrid, type UploadedFile } from '@/shared/components';
-import { getFileTypeInfo, formatFileSize } from '@/shared/utils';
+import { IndexedDBStorageAdapter } from '@/adapters';
+import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
+
+// Initialize storage adapter (persistent)
+const storage = new IndexedDBStorageAdapter();
 
 interface StoredFile {
   id: string;
@@ -17,78 +21,95 @@ export default function Home() {
   const [uploadQueue, setUploadQueue] = useState<UploadedFile[]>([]);
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Load stored files from localStorage on mount
+  // Load stored files from IndexedDB on mount
   useEffect(() => {
-    const stored = localStorage.getItem('dweb-files');
-    if (stored) {
-      setStoredFiles(JSON.parse(stored));
+    async function loadFiles() {
+      try {
+        const files = await storage.getAllFiles();
+        setStoredFiles(files.map(f => ({
+          id: f.id,
+          name: f.name,
+          size: f.size,
+          type: f.type,
+          preview: f.preview,
+          uploadedAt: f.createdAt,
+        })));
+      } catch (error) {
+        console.error('Failed to load files:', error);
+      } finally {
+        setIsLoading(false);
+      }
     }
+    loadFiles();
   }, []);
 
   // Handle new files selected
-  const handleFilesSelected = (files: UploadedFile[]) => {
+  const handleFilesSelected = useCallback((files: UploadedFile[]) => {
     setUploadQueue((prev) => [...prev, ...files]);
 
-    // Simulate upload for each file
-    files.forEach((file) => {
-      simulateUpload(file.id);
+    // Upload each file to IndexedDB
+    files.forEach((uploadedFile) => {
+      uploadFile(uploadedFile);
     });
-  };
+  }, []);
 
-  // Simulate upload progress
-  const simulateUpload = (fileId: string) => {
+  // Upload file to IndexedDB with progress simulation
+  const uploadFile = async (uploadedFile: UploadedFile) => {
+    const { id, file } = uploadedFile;
+
+    // Simulate progress while actually uploading
     let progress = 0;
-
-    const interval = setInterval(() => {
-      progress += Math.random() * 15 + 5;
-
-      if (progress >= 100) {
-        clearInterval(interval);
-        progress = 100;
-
-        // Mark as complete
+    const progressInterval = setInterval(() => {
+      progress += Math.random() * 20 + 10;
+      if (progress < 90) {
         setUploadQueue((prev) =>
           prev.map((f) =>
-            f.id === fileId
-              ? { ...f, progress: 100, status: 'complete' as const }
-              : f
-          )
-        );
-
-        // Add to stored files after a short delay
-        setTimeout(() => {
-          setUploadQueue((prev) => {
-            const completedFile = prev.find((f) => f.id === fileId);
-            if (completedFile) {
-              const newStoredFile: StoredFile = {
-                id: completedFile.id,
-                name: completedFile.file.name,
-                size: completedFile.file.size,
-                type: completedFile.file.type,
-                preview: completedFile.preview,
-                uploadedAt: Date.now(),
-              };
-
-              setStoredFiles((prevStored) => {
-                const updated = [...prevStored, newStoredFile];
-                localStorage.setItem('dweb-files', JSON.stringify(updated));
-                return updated;
-              });
-            }
-            return prev.filter((f) => f.id !== fileId);
-          });
-        }, 1000);
-      } else {
-        setUploadQueue((prev) =>
-          prev.map((f) =>
-            f.id === fileId
-              ? { ...f, progress: Math.min(progress, 99), status: 'uploading' as const }
-              : f
+            f.id === id ? { ...f, progress, status: 'uploading' as const } : f
           )
         );
       }
-    }, 200);
+    }, 100);
+
+    try {
+      // Actually store in IndexedDB
+      const result = await storage.upload(file);
+
+      clearInterval(progressInterval);
+
+      // Mark as complete
+      setUploadQueue((prev) =>
+        prev.map((f) =>
+          f.id === id ? { ...f, progress: 100, status: 'complete' as const } : f
+        )
+      );
+
+      // Add to stored files
+      const newStoredFile: StoredFile = {
+        id: result.cid,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        preview: uploadedFile.preview,
+        uploadedAt: Date.now(),
+      };
+
+      setStoredFiles((prev) => [...prev, newStoredFile]);
+
+      // Remove from queue after delay
+      setTimeout(() => {
+        setUploadQueue((prev) => prev.filter((f) => f.id !== id));
+      }, 1500);
+
+    } catch (error) {
+      clearInterval(progressInterval);
+      setUploadQueue((prev) =>
+        prev.map((f) =>
+          f.id === id ? { ...f, status: 'error' as const, error: 'Upload failed' } : f
+        )
+      );
+    }
   };
 
   // Remove from upload queue
@@ -100,22 +121,28 @@ export default function Home() {
     });
   };
 
-  // Delete stored file
-  const handleDeleteFile = (id: string) => {
-    setStoredFiles((prev) => {
-      const file = prev.find((f) => f.id === id);
-      if (file?.preview) URL.revokeObjectURL(file.preview);
-      const updated = prev.filter((f) => f.id !== id);
-      localStorage.setItem('dweb-files', JSON.stringify(updated));
-      return updated;
-    });
+  // Delete stored file from IndexedDB
+  const handleDeleteFile = async (id: string) => {
+    try {
+      await storage.delete(id);
+      setStoredFiles((prev) => {
+        const file = prev.find((f) => f.id === id);
+        if (file?.preview) URL.revokeObjectURL(file.preview);
+        return prev.filter((f) => f.id !== id);
+      });
+    } catch (error) {
+      console.error('Failed to delete file:', error);
+    }
   };
 
-  // Preview file (placeholder)
-  const handlePreviewFile = (id: string) => {
-    const file = storedFiles.find((f) => f.id === id);
-    if (file?.preview) {
-      window.open(file.preview, '_blank');
+  // Preview file
+  const handlePreviewFile = async (id: string) => {
+    try {
+      const blob = await storage.download(id);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error('Failed to preview file:', error);
     }
   };
 
@@ -134,7 +161,7 @@ export default function Home() {
         <div className="text-center mb-12">
           <div className="inline-block mb-4 px-4 py-2 rounded-full bg-[var(--surface)] border border-[var(--border)]">
             <span className="text-sm font-medium text-[var(--accent-light)]">
-              🌐 Decentralized File Storage
+              🌐 Permanent Decentralized Storage
             </span>
           </div>
 
@@ -143,8 +170,8 @@ export default function Home() {
           </h1>
 
           <p className="text-lg text-gray-400 max-w-xl mx-auto">
-            Upload and store your files on decentralized storage.
-            PDF, audio, video, and images supported.
+            Upload and store your files permanently.
+            Files persist even after closing the browser.
           </p>
         </div>
 
@@ -160,6 +187,11 @@ export default function Home() {
               <div>
                 <p className="text-2xl font-bold">{formatFileSize(totalSize)}</p>
                 <p className="text-xs text-gray-500">Total Size</p>
+              </div>
+              <div className="h-8 w-px bg-[var(--border)]" />
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[var(--success)]" />
+                <span className="text-xs text-gray-500">IndexedDB</span>
               </div>
             </div>
 
@@ -214,7 +246,12 @@ export default function Home() {
 
         {/* Content */}
         <div className="glass-card glow p-8">
-          {activeTab === 'upload' ? (
+          {isLoading ? (
+            <div className="text-center py-16">
+              <div className="w-12 h-12 mx-auto mb-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+              <p className="text-gray-400">Loading files from storage...</p>
+            </div>
+          ) : activeTab === 'upload' ? (
             <div className="space-y-6">
               <FileUploader onFilesSelected={handleFilesSelected} />
 
@@ -246,7 +283,8 @@ export default function Home() {
 
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-gray-500">
-          <p>Built with Next.js • Decentralized Architecture •
+          <p>
+            Files stored permanently in IndexedDB •
             <a href="https://github.com/remixonwin/iamt" className="text-[var(--accent)] hover:underline ml-1">
               GitHub
             </a>
