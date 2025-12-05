@@ -4,7 +4,7 @@
  * A local relay server for syncing data across devices.
  * Run with: node server.js
  * 
- * Access at: http://localhost:8765/gun
+ * Access at: http://localhost:8765/
  */
 
 const express = require('express');

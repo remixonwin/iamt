@@ -89,12 +89,33 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             return;
         }
 
-        const torrent = client.add(magnetURI, {
-            announce: [
-                'wss://tracker.openwebtorrent.com',
-                'wss://tracker.btorrent.xyz',
-            ]
-        });
+        // Prevent duplicate add
+        if (existing) {
+            // Already downloading, wait for it
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const existingTorrent = existing as any;
+            existingTorrent.on('done', () => {
+                existingTorrent.files[0].getBlob((err: Error | null, blob: Blob | null) => {
+                    if (err || !blob) reject(err);
+                    else resolve(blob);
+                });
+            });
+            existingTorrent.on('error', reject);
+            return;
+        }
+
+        let torrent;
+        try {
+            torrent = client.add(magnetURI, {
+                announce: [
+                    'wss://tracker.openwebtorrent.com',
+                    'wss://tracker.btorrent.xyz',
+                ]
+            });
+        } catch (err) {
+            reject(err);
+            return;
+        }
 
         torrent.on('done', () => {
             console.log('[P2P] Download complete:', torrent.infoHash);

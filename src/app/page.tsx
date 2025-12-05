@@ -137,10 +137,16 @@ export default function Home() {
         // Privacy/encryption fields
         visibility: result.visibility,
         encrypted: result.visibility !== 'public',
-        encryptionIv: result.encryptionMetadata?.iv,
-        encryptionSalt: result.encryptionMetadata?.salt,
         originalType: file.type,
       };
+
+      // Only add encryption metadata if present (Gun.js rejects undefined values)
+      if (result.encryptionMetadata?.iv) {
+        metadata.encryptionIv = result.encryptionMetadata.iv;
+      }
+      if (result.encryptionMetadata?.salt) {
+        metadata.encryptionSalt = result.encryptionMetadata.salt;
+      }
 
       if (db) {
         await db.set('files', result.cid, metadata);

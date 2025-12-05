@@ -26,18 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Polyfill for WebTorrent browser compatibility */}
-        {/* Polyfill for WebTorrent browser compatibility */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if (typeof window !== 'undefined') {
-                window.global = window;
-                if (!window.process) window.process = { env: {} };
-              }
-            `,
-          }}
-        />
+        {/* Polyfill for WebTorrent browser compatibility handled in next.config.mjs */}
       </head>
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}

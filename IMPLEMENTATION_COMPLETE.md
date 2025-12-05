@@ -337,7 +337,7 @@ DOWNLOAD_LIMIT=300
 NEXT_PUBLIC_STORAGE_API=http://localhost:3001
 
 # Gun.js relay server
-NEXT_PUBLIC_GUN_RELAY=http://localhost:8765/gun
+NEXT_PUBLIC_GUN_RELAY=http://localhost:8765/
 ```
 
 ---

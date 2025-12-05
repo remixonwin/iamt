@@ -7,7 +7,7 @@
 'use client';
 
 // Use environment variable or fallback to localhost
-const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
+const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/';
 
 // Fallback relays (updated - Heroku relays deprecated)
 const FALLBACK_RELAYS: string[] = [];
