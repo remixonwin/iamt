@@ -206,26 +206,41 @@ export default function Home() {
       let blob: Blob;
 
       if (file.encrypted) {
-        if (!file.canDecrypt) {
-          // For password-protected files, prompt for password
-          if (file.visibility === 'password-protected') {
-            const password = window.prompt('Enter password to decrypt this file:');
-            if (!password) return;
+        // Password-protected files always need password input
+        if (file.visibility === 'password-protected') {
+          const password = window.prompt('Enter password to decrypt this file:');
+          if (!password) return;
 
-            try {
-              blob = await storage.downloadWithPassword(id, password);
-            } catch (error) {
-              alert('Incorrect password or decryption failed');
-              console.error('Decryption failed:', error);
-              return;
-            }
-          } else {
-            alert('You do not have the key to decrypt this file. Only the owner can access it.');
+          try {
+            blob = await storage.downloadWithPassword(id, password);
+          } catch (error) {
+            alert('Incorrect password or decryption failed');
+            console.error('Decryption failed:', error);
             return;
           }
+        } else if (!file.canDecrypt) {
+          // Private file but we don't have the key
+          alert('You do not have the key to decrypt this file. Only the owner can access it.');
+          return;
         } else {
-          // We have the key, decrypt
-          blob = await storage.downloadAndDecrypt(id);
+          // Private file and we have the key
+          try {
+            blob = await storage.downloadAndDecrypt(id);
+          } catch (error) {
+            // If it fails, might be password-protected that was mislabeled
+            if (error instanceof Error && error.message.includes('password-protected')) {
+              const password = window.prompt('Enter password to decrypt this file:');
+              if (!password) return;
+              try {
+                blob = await storage.downloadWithPassword(id, password);
+              } catch {
+                alert('Incorrect password or decryption failed');
+                return;
+              }
+            } else {
+              throw error;
+            }
+          }
         }
       } else {
         // Public file, download directly
