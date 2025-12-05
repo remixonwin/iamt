@@ -1,6 +1,5 @@
-/** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export', // Static export for IPFS/Fleek hosting
+  output: 'standalone', // Optimized for Docker
 };
 
 export default nextConfig;

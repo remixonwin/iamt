@@ -5,6 +5,13 @@ A **fully local, peer-to-peer** file storage app with torrent-like file sharing.
 ## 🚀 Quick Start
 
 ### 1. Start All Servers
+#### Option A: Docker (Recommended)
+```bash
+# Start everything with one command
+docker compose up --build
+```
+
+#### Option B: Manual
 ```bash
 # Terminal 1: Gun.js relay (P2P sync)
 cd relay && npm start

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_STORAGE_API: http://localhost:3001
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    restart: always
+
+  relay:
+    build:
+      context: ./relay
+      dockerfile: Dockerfile
+    ports:
+      - "8765:8765"
+    volumes:
+      - relay_data:/app/data
+    restart: always
+
+  storage:
+    build:
+      context: ./storage
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - storage_files:/app/files
+    restart: always
+
+volumes:
+  relay_data:
+  storage_files:
