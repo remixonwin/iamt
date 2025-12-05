@@ -6,3 +6,4 @@ export { IndexedDBStorageAdapter } from './storage/indexeddb';
 // Database Adapters
 export type { DatabaseAdapter, QueryOptions } from './database/types';
 export { MockDatabaseAdapter } from './database/mock';
+export { GunDatabaseAdapter, type GunFileMetadata } from './database/gun';

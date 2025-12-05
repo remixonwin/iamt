@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { FileUploader, FilePreview, FileGrid, type UploadedFile } from '@/shared/components';
-import { IndexedDBStorageAdapter } from '@/adapters';
+import { IndexedDBStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
 
-// Initialize storage adapter (persistent)
+// Initialize adapters
 const storage = new IndexedDBStorageAdapter();
 
 interface StoredFile {
@@ -15,6 +15,7 @@ interface StoredFile {
   type: string;
   preview?: string;
   uploadedAt: number;
+  deviceId?: string;
 }
 
 export default function Home() {
@@ -22,44 +23,93 @@ export default function Home() {
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
   const [isLoading, setIsLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<'connecting' | 'synced' | 'offline'>('connecting');
+  const dbRef = useRef<GunDatabaseAdapter | null>(null);
 
-  // Load stored files from IndexedDB on mount
+  // Load files and set up sync
   useEffect(() => {
-    async function loadFiles() {
+    async function init() {
+      // Initialize Gun.js adapter (client-side only)
+      dbRef.current = new GunDatabaseAdapter();
+      const db = dbRef.current;
+
+      // Load local files from IndexedDB
       try {
-        const files = await storage.getAllFiles();
-        setStoredFiles(files.map(f => ({
-          id: f.id,
-          name: f.name,
-          size: f.size,
-          type: f.type,
-          preview: f.preview,
-          uploadedAt: f.createdAt,
-        })));
+        const localFiles = await storage.getAllFiles();
+        const localFileMap = new Map(localFiles.map(f => [f.id, f]));
+
+        // Subscribe to Gun.js for real-time sync
+        const unsubscribe = db.subscribe<GunFileMetadata>('files', (syncedFiles) => {
+          setSyncStatus('synced');
+
+          // Merge synced metadata with local files
+          const merged: StoredFile[] = [];
+
+          Object.values(syncedFiles).forEach((meta) => {
+            if (meta && meta.id) {
+              const localFile = localFileMap.get(meta.id);
+              merged.push({
+                id: meta.id,
+                name: meta.name,
+                size: meta.size,
+                type: meta.type,
+                uploadedAt: meta.createdAt,
+                deviceId: meta.deviceId,
+                preview: localFile?.preview, // Use local preview if available
+              });
+            }
+          });
+
+          // Also include local-only files not yet synced
+          localFiles.forEach((local) => {
+            if (!syncedFiles[local.id]) {
+              merged.push({
+                id: local.id,
+                name: local.name,
+                size: local.size,
+                type: local.type,
+                uploadedAt: local.createdAt,
+                preview: local.preview,
+              });
+            }
+          });
+
+          setStoredFiles(merged);
+        });
+
+        // Initial load
+        setTimeout(() => {
+          if (syncStatus === 'connecting') {
+            setSyncStatus('synced');
+          }
+          setIsLoading(false);
+        }, 1000);
+
+        return () => unsubscribe();
       } catch (error) {
-        console.error('Failed to load files:', error);
-      } finally {
+        console.error('Failed to initialize:', error);
+        setSyncStatus('offline');
         setIsLoading(false);
       }
     }
-    loadFiles();
+
+    init();
   }, []);
 
   // Handle new files selected
   const handleFilesSelected = useCallback((files: UploadedFile[]) => {
     setUploadQueue((prev) => [...prev, ...files]);
-
-    // Upload each file to IndexedDB
     files.forEach((uploadedFile) => {
       uploadFile(uploadedFile);
     });
   }, []);
 
-  // Upload file to IndexedDB with progress simulation
+  // Upload file to IndexedDB and sync metadata to Gun.js
   const uploadFile = async (uploadedFile: UploadedFile) => {
     const { id, file } = uploadedFile;
+    const db = dbRef.current;
 
-    // Simulate progress while actually uploading
+    // Simulate progress while uploading
     let progress = 0;
     const progressInterval = setInterval(() => {
       progress += Math.random() * 20 + 10;
@@ -73,19 +123,34 @@ export default function Home() {
     }, 100);
 
     try {
-      // Actually store in IndexedDB
+      // Store in IndexedDB
       const result = await storage.upload(file);
 
       clearInterval(progressInterval);
 
-      // Mark as complete
+      // Mark complete
       setUploadQueue((prev) =>
         prev.map((f) =>
           f.id === id ? { ...f, progress: 100, status: 'complete' as const } : f
         )
       );
 
-      // Add to stored files
+      // Create metadata for Gun.js sync
+      const metadata: GunFileMetadata = {
+        id: result.cid,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        createdAt: Date.now(),
+        deviceId: db?.getDeviceId() || 'unknown',
+      };
+
+      // Sync to Gun.js (will propagate to other devices)
+      if (db) {
+        await db.set('files', result.cid, metadata);
+      }
+
+      // Add to local state
       const newStoredFile: StoredFile = {
         id: result.cid,
         name: file.name,
@@ -93,11 +158,12 @@ export default function Home() {
         type: file.type,
         preview: uploadedFile.preview,
         uploadedAt: Date.now(),
+        deviceId: db?.getDeviceId(),
       };
 
       setStoredFiles((prev) => [...prev, newStoredFile]);
 
-      // Remove from queue after delay
+      // Remove from queue
       setTimeout(() => {
         setUploadQueue((prev) => prev.filter((f) => f.id !== id));
       }, 1500);
@@ -112,7 +178,7 @@ export default function Home() {
     }
   };
 
-  // Remove from upload queue
+  // Remove from queue
   const handleRemoveFromQueue = (id: string) => {
     setUploadQueue((prev) => {
       const file = prev.find((f) => f.id === id);
@@ -121,15 +187,15 @@ export default function Home() {
     });
   };
 
-  // Delete stored file from IndexedDB
+  // Delete file
   const handleDeleteFile = async (id: string) => {
+    const db = dbRef.current;
     try {
       await storage.delete(id);
-      setStoredFiles((prev) => {
-        const file = prev.find((f) => f.id === id);
-        if (file?.preview) URL.revokeObjectURL(file.preview);
-        return prev.filter((f) => f.id !== id);
-      });
+      if (db) {
+        await db.delete('files', id);
+      }
+      setStoredFiles((prev) => prev.filter((f) => f.id !== id));
     } catch (error) {
       console.error('Failed to delete file:', error);
     }
@@ -142,17 +208,25 @@ export default function Home() {
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
     } catch (error) {
-      console.error('Failed to preview file:', error);
+      // File might be from another device, not stored locally
+      console.error('File not available locally:', error);
+      alert('This file is from another device and not available locally.');
     }
   };
 
-  // Calculate stats
+  // Stats
   const totalSize = storedFiles.reduce((acc, f) => acc + f.size, 0);
   const filesByType = storedFiles.reduce((acc, f) => {
     const info = getFileTypeInfo({ type: f.type } as File);
     acc[info.category] = (acc[info.category] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  const syncStatusColor = {
+    connecting: 'bg-yellow-500',
+    synced: 'bg-[var(--success)]',
+    offline: 'bg-[var(--error)]',
+  };
 
   return (
     <main className="gradient-bg min-h-screen">
@@ -161,7 +235,7 @@ export default function Home() {
         <div className="text-center mb-12">
           <div className="inline-block mb-4 px-4 py-2 rounded-full bg-[var(--surface)] border border-[var(--border)]">
             <span className="text-sm font-medium text-[var(--accent-light)]">
-              🌐 Permanent Decentralized Storage
+              🌐 P2P Synced Storage
             </span>
           </div>
 
@@ -170,8 +244,7 @@ export default function Home() {
           </h1>
 
           <p className="text-lg text-gray-400 max-w-xl mx-auto">
-            Upload and store your files permanently.
-            Files persist even after closing the browser.
+            Upload files. They sync across all your devices in real-time.
           </p>
         </div>
 
@@ -190,8 +263,8 @@ export default function Home() {
               </div>
               <div className="h-8 w-px bg-[var(--border)]" />
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[var(--success)]" />
-                <span className="text-xs text-gray-500">IndexedDB</span>
+                <span className={`w-2 h-2 rounded-full ${syncStatusColor[syncStatus]} ${syncStatus === 'connecting' ? 'animate-pulse' : ''}`} />
+                <span className="text-xs text-gray-500 capitalize">{syncStatus}</span>
               </div>
             </div>
 
@@ -208,7 +281,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tabs */}
         <div className="flex gap-2 mb-8">
           <button
             onClick={() => setActiveTab('upload')}
@@ -249,13 +322,12 @@ export default function Home() {
           {isLoading ? (
             <div className="text-center py-16">
               <div className="w-12 h-12 mx-auto mb-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
-              <p className="text-gray-400">Loading files from storage...</p>
+              <p className="text-gray-400">Connecting to sync network...</p>
             </div>
           ) : activeTab === 'upload' ? (
             <div className="space-y-6">
               <FileUploader onFilesSelected={handleFilesSelected} />
 
-              {/* Upload Queue */}
               {uploadQueue.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2">
@@ -284,7 +356,7 @@ export default function Home() {
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-gray-500">
           <p>
-            Files stored permanently in IndexedDB •
+            P2P sync via Gun.js • Local storage via IndexedDB •
             <a href="https://github.com/remixonwin/iamt" className="text-[var(--accent)] hover:underline ml-1">
               GitHub
             </a>
