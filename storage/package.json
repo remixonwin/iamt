@@ -1,0 +1,23 @@
+{
+  "name": "iamt-storage",
+  "version": "1.0.0",
+  "description": "WebTorrent P2P storage server for IAMT",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "webtorrent",
+    "p2p",
+    "storage"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "webtorrent": "^2.8.5"
+  }
+}
