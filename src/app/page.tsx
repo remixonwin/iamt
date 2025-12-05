@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FileUploader, FilePreview, FileGrid, type UploadedFile } from '@/shared/components';
+import { FileUploader, FilePreview, FileGrid, type UploadedFile, type FileVisibility } from '@/shared/components';
 import { WebTorrentStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
+import { getKeyring } from '@/shared/utils/keyring';
 
 // P2P Storage server - Use env var or default to public tunnel, fallback to localhost for dev/test
-const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'https://iamt-storage.loca.lt';
+const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'http://localhost:3001';
 
 // Initialize storage
 const storage = new WebTorrentStorageAdapter(STORAGE_API);
@@ -20,6 +21,10 @@ interface StoredFile {
   magnetURI?: string;
   uploadedAt: number;
   deviceId?: string;
+  // Privacy fields
+  visibility: FileVisibility;
+  encrypted: boolean;
+  canDecrypt?: boolean;
 }
 
 export default function Home() {
@@ -35,22 +40,33 @@ export default function Home() {
     async function init() {
       dbRef.current = new GunDatabaseAdapter();
       const db = dbRef.current;
+      const keyring = getKeyring();
 
       // Subscribe to Gun.js for sync
-      const unsubscribe = db.subscribe<GunFileMetadata & { magnetURI?: string }>('files', (syncedFiles) => {
+      const unsubscribe = db.subscribe<GunFileMetadata & { magnetURI?: string }>('files', async (syncedFiles) => {
         setSyncStatus('synced');
 
-        const files: StoredFile[] = Object.values(syncedFiles)
-          .filter((meta) => meta && meta.id)
-          .map((meta) => ({
-            id: meta.id,
-            name: meta.name,
-            size: meta.size,
-            type: meta.type,
-            uploadedAt: meta.createdAt,
-            deviceId: meta.deviceId,
-            magnetURI: meta.magnetURI,
-          }));
+        const files: StoredFile[] = await Promise.all(
+          Object.values(syncedFiles)
+            .filter((meta) => meta && meta.id)
+            .map(async (meta) => {
+              // Check if we can decrypt this file
+              const canDecrypt = meta.encrypted ? await keyring.hasKey(meta.id) : true;
+              
+              return {
+                id: meta.id,
+                name: meta.name,
+                size: meta.size,
+                type: meta.originalType || meta.type,
+                uploadedAt: meta.createdAt,
+                deviceId: meta.deviceId,
+                magnetURI: meta.magnetURI,
+                visibility: meta.visibility || 'public',
+                encrypted: meta.encrypted || false,
+                canDecrypt,
+              };
+            })
+        );
 
         setStoredFiles(files);
       });
@@ -72,7 +88,7 @@ export default function Home() {
   }, []);
 
   const uploadFile = async (uploadedFile: UploadedFile) => {
-    const { id, file } = uploadedFile;
+    const { id, file, visibility, password } = uploadedFile;
     const db = dbRef.current;
 
     let progress = 0;
@@ -88,8 +104,11 @@ export default function Home() {
     }, 200);
 
     try {
-      // Upload to WebTorrent server
-      const result = await storage.upload(file);
+      // Upload to WebTorrent server (with encryption if private/password-protected)
+      const result = await storage.upload(file, {
+        visibility,
+        password,
+      });
 
       clearInterval(progressInterval);
 
@@ -99,15 +118,21 @@ export default function Home() {
         )
       );
 
-      // Sync to Gun.js (includes magnet URI!)
-      const metadata = {
+      // Sync to Gun.js (includes magnet URI and encryption metadata!)
+      const metadata: GunFileMetadata & { magnetURI?: string } = {
         id: result.cid,
         name: file.name,
         size: file.size,
-        type: file.type,
+        type: visibility !== 'public' ? 'application/octet-stream' : file.type,
         createdAt: Date.now(),
         deviceId: db?.getDeviceId() || 'unknown',
-        magnetURI: result.url, // Magnet URI for P2P download
+        magnetURI: result.url,
+        // Privacy/encryption fields
+        visibility: result.visibility,
+        encrypted: result.visibility !== 'public',
+        encryptionIv: result.encryptionMetadata?.iv,
+        encryptionSalt: result.encryptionMetadata?.salt,
+        originalType: file.type,
       };
 
       if (db) {
@@ -115,8 +140,15 @@ export default function Home() {
       }
 
       setStoredFiles((prev) => [...prev, {
-        ...metadata,
+        id: metadata.id,
+        name: metadata.name,
+        size: metadata.size,
+        type: metadata.originalType || metadata.type,
         uploadedAt: metadata.createdAt,
+        magnetURI: metadata.magnetURI,
+        visibility: metadata.visibility,
+        encrypted: metadata.encrypted,
+        canDecrypt: true, // We just uploaded it, so we can decrypt it
       }]);
 
       setTimeout(() => {
@@ -151,11 +183,47 @@ export default function Home() {
 
   const handlePreviewFile = async (id: string) => {
     try {
-      const blob = await storage.download(id);
+      const file = storedFiles.find(f => f.id === id);
+      
+      if (!file) {
+        console.error('File not found');
+        return;
+      }
+
+      let blob: Blob;
+
+      if (file.encrypted) {
+        if (!file.canDecrypt) {
+          // For password-protected files, prompt for password
+          if (file.visibility === 'password-protected') {
+            const password = window.prompt('Enter password to decrypt this file:');
+            if (!password) return;
+            
+            try {
+              blob = await storage.downloadWithPassword(id, password);
+            } catch (error) {
+              alert('Incorrect password or decryption failed');
+              console.error('Decryption failed:', error);
+              return;
+            }
+          } else {
+            alert('You do not have the key to decrypt this file. Only the owner can access it.');
+            return;
+          }
+        } else {
+          // We have the key, decrypt
+          blob = await storage.downloadAndDecrypt(id);
+        }
+      } else {
+        // Public file, download directly
+        blob = await storage.download(id);
+      }
+
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
     } catch (error) {
-      console.error('Download failed:', error);
+      console.error('Download/Decryption failed:', error);
+      alert('Failed to open file. ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 

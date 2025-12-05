@@ -1,22 +1,30 @@
 /**
  * Gun.js Database Adapter
  * 
- * Connects to LOCALTUNNEL relay for public access.
+ * Connects to local relay in development, public relay in production.
  */
 
 'use client';
 
-// PUBLIC RELAY via localtunnel (accessible from anywhere!)
-const PUBLIC_RELAY = 'https://iamt-relay.loca.lt/gun';
+// Use environment variable or fallback to localhost
+const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
-// Fallback: local network relay
-const LOCAL_RELAY = 'http://192.168.1.181:8765/gun';
+// Fallback relays
+const FALLBACK_RELAYS = [
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-eu.herokuapp.com/gun',
+];
 
-// All relays - public first
-const RELAYS = [PUBLIC_RELAY, LOCAL_RELAY];
+// All relays - primary first, then fallbacks
+const RELAYS = [PRIMARY_RELAY, ...FALLBACK_RELAYS];
 
 // App namespace
 const APP_NAMESPACE = 'iamt-files-v3';
+
+/**
+ * File Visibility Options
+ */
+export type FileVisibility = 'public' | 'private' | 'password-protected';
 
 // Type for file metadata
 export interface GunFileMetadata {
@@ -27,6 +35,20 @@ export interface GunFileMetadata {
     createdAt: number;
     deviceId: string;
     url?: string;
+    
+    // Privacy/Security fields
+    /** File visibility setting */
+    visibility: FileVisibility;
+    /** Whether file content is encrypted */
+    encrypted: boolean;
+    /** Base64 encoded IV for decryption (safe to share) */
+    encryptionIv?: string;
+    /** Base64 encoded salt for password-derived key */
+    encryptionSalt?: string;
+    /** Original MIME type (before encryption) */
+    originalType?: string;
+    /** File hash for integrity verification */
+    fileHash?: string;
 }
 
 /**
@@ -71,7 +93,7 @@ export class GunDatabaseAdapter {
             localStorage: true,
         });
 
-        console.log('[Gun.js] Connecting to:', PUBLIC_RELAY);
+        console.log('[Gun.js] Connecting to:', PRIMARY_RELAY);
     }
 
     private async ensureGun() {

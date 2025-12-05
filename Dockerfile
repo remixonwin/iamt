@@ -22,6 +22,10 @@ COPY . .
 # Uncomment the following line in case you want to disable telemetry during the build.
 ENV NEXT_TELEMETRY_DISABLED 1
 
+# Declare build arguments
+ARG NEXT_PUBLIC_STORAGE_API
+ENV NEXT_PUBLIC_STORAGE_API=$NEXT_PUBLIC_STORAGE_API
+
 RUN npm run build
 
 # Production image, copy all the files and run next

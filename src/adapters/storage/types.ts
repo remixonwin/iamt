@@ -1,4 +1,38 @@
 /**
+ * File Visibility Options
+ * 
+ * - public: Anyone with the CID can access the file
+ * - private: File is encrypted, only owner can decrypt
+ * - password-protected: File is encrypted, anyone with password can decrypt
+ */
+export type FileVisibility = 'public' | 'private' | 'password-protected';
+
+/**
+ * Upload Options
+ */
+export interface UploadOptions {
+    /** File visibility setting */
+    visibility: FileVisibility;
+    /** Password for password-protected files */
+    password?: string;
+}
+
+/**
+ * Encryption Metadata
+ * Stored alongside the file for decryption
+ */
+export interface EncryptionMetadata {
+    /** Base64 encoded initialization vector */
+    iv: string;
+    /** Base64 encoded salt (for password-protected files) */
+    salt?: string;
+    /** Original MIME type before encryption */
+    originalType: string;
+    /** Original file name */
+    originalName: string;
+}
+
+/**
  * Storage Adapter Interface
  * 
  * Provides a unified interface for file storage operations.
@@ -14,9 +48,10 @@ export interface StorageAdapter {
     /**
      * Upload a file to storage
      * @param file - The file to upload
+     * @param options - Upload options including visibility
      * @returns Promise with content identifier and accessible URL
      */
-    upload(file: File): Promise<UploadResult>;
+    upload(file: File, options?: UploadOptions): Promise<UploadResult>;
 
     /**
      * Download a file from storage by its identifier
@@ -45,4 +80,8 @@ export interface UploadResult {
     url: string;
     /** File size in bytes */
     size: number;
+    /** File visibility setting */
+    visibility: FileVisibility;
+    /** Encryption metadata (for private/password-protected files) */
+    encryptionMetadata?: EncryptionMetadata;
 }

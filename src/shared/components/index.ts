@@ -1,3 +1,3 @@
-export { FileUploader, type UploadedFile } from './FileUploader';
+export { FileUploader, type UploadedFile, type FileVisibility } from './FileUploader';
 export { FilePreview } from './FilePreview';
 export { FileGrid } from './FileGrid';
