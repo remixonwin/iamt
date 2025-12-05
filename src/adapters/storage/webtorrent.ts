@@ -1,10 +1,10 @@
 import type { StorageAdapter, UploadResult, UploadOptions, FileVisibility } from './types';
 import { seedFile, downloadFileP2P } from './p2p';
-import { 
-    encryptFile, 
-    encryptFileWithPassword, 
+import {
+    encryptFile,
+    encryptFileWithPassword,
     uint8ArrayToBase64,
-    isCryptoSupported 
+    isCryptoSupported
 } from '@/shared/utils/crypto';
 import { getKeyring } from '@/shared/utils/keyring';
 
@@ -12,7 +12,7 @@ import { getKeyring } from '@/shared/utils/keyring';
 const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'http://localhost:3001';
 
 // Check if we're in production without a configured storage API
-const isProductionWithoutStorage = typeof window !== 'undefined' 
+const isProductionWithoutStorage = typeof window !== 'undefined'
     && !window.location.hostname.includes('localhost')
     && STORAGE_API.includes('localhost');
 
@@ -34,7 +34,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
 
     constructor(apiUrl?: string) {
         this.apiUrl = apiUrl || STORAGE_API;
-        this.serverAvailable = !isProductionWithoutStorage;
+        this.serverAvailable = true; // Always attempt connection, let network stack handle failures
     }
 
     /**
@@ -75,7 +75,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
                     type: 'application/octet-stream',
                 });
                 encryptionIv = uint8ArrayToBase64(result.iv);
-                
+
                 // Key will be stored after we get the CID
                 // We need to return it for storage
             }
@@ -206,7 +206,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
             return await downloadFileP2P(magnetURI);
         } catch (err) {
             console.warn('[Adapter] P2P download failed/timeout:', err);
-            
+
             // If no server available, P2P was our only option
             if (!this.serverAvailable) {
                 throw new Error('P2P download failed and no storage server available. The file may not be seeded by any peers.');
@@ -230,14 +230,14 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
      */
     async downloadAndDecrypt(cid: string): Promise<Blob> {
         const { decryptFile, isCryptoSupported } = await import('@/shared/utils/crypto');
-        
+
         if (!isCryptoSupported()) {
             throw new Error('Encryption not supported in this browser');
         }
 
         const keyring = getKeyring();
         const keyEntry = await keyring.getKey(cid);
-        
+
         if (!keyEntry) {
             throw new Error('No encryption key found for this file. You may not be the owner.');
         }
@@ -248,7 +248,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
 
         // Download encrypted blob
         const encryptedBlob = await this.download(cid);
-        
+
         // Decrypt
         const decryptedBlob = await decryptFile(
             {
@@ -268,14 +268,14 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
      */
     async downloadWithPassword(cid: string, password: string): Promise<Blob> {
         const { decryptFileWithPassword, isCryptoSupported } = await import('@/shared/utils/crypto');
-        
+
         if (!isCryptoSupported()) {
             throw new Error('Encryption not supported in this browser');
         }
 
         const keyring = getKeyring();
         const keyEntry = await keyring.getKey(cid);
-        
+
         if (!keyEntry) {
             throw new Error('No metadata found for this file.');
         }
@@ -286,7 +286,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
 
         // Download encrypted blob
         const encryptedBlob = await this.download(cid);
-        
+
         // Decrypt with password
         const decryptedBlob = await decryptFileWithPassword(
             encryptedBlob,

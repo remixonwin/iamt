@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FileUploader, FilePreview, FileGrid, type UploadedFile, type FileVisibility } from '@/shared/components';
+import { FileUploader, FilePreview, FileGrid, FileViewer, type UploadedFile, type FileVisibility } from '@/shared/components';
 import { WebTorrentStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
 import { getKeyring } from '@/shared/utils/keyring';
@@ -33,6 +33,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
   const [isLoading, setIsLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'synced' | 'offline'>('connecting');
+  const [viewerData, setViewerData] = useState<{ file: StoredFile; blob: Blob } | null>(null);
   const dbRef = useRef<GunDatabaseAdapter | null>(null);
 
   // Initialize
@@ -247,8 +248,8 @@ export default function Home() {
         blob = await storage.download(id);
       }
 
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      // Open in-page viewer instead of downloading
+      setViewerData({ file, blob });
     } catch (error) {
       console.error('Download/Decryption failed:', error);
       alert('Failed to open file. ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -361,6 +362,15 @@ export default function Home() {
           <p>P2P via WebTorrent • Synced via Gun.js • Local storage server</p>
         </footer>
       </div>
+
+      {/* File Viewer Modal */}
+      {viewerData && (
+        <FileViewer
+          file={viewerData.file}
+          blob={viewerData.blob}
+          onClose={() => setViewerData(null)}
+        />
+      )}
     </main>
   );
 }

@@ -7,7 +7,7 @@
 'use client';
 
 // Use environment variable or fallback to localhost
-const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/';
+const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
 // Fallback relays (updated - Heroku relays deprecated)
 const FALLBACK_RELAYS: string[] = [];
@@ -15,8 +15,8 @@ const FALLBACK_RELAYS: string[] = [];
 // All relays - primary first, then fallbacks
 // In production without custom relay, use public relays only
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
-const RELAYS = isProduction && PRIMARY_RELAY.includes('localhost') 
-    ? FALLBACK_RELAYS 
+const RELAYS = isProduction && PRIMARY_RELAY.includes('localhost')
+    ? FALLBACK_RELAYS
     : [PRIMARY_RELAY, ...FALLBACK_RELAYS];
 
 // App namespace
@@ -36,7 +36,7 @@ export interface GunFileMetadata {
     createdAt: number;
     deviceId: string;
     url?: string;
-    
+
     // Privacy/Security fields
     /** File visibility setting */
     visibility: FileVisibility;
