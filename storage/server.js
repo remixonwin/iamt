@@ -170,6 +170,8 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
         });
 
         torrents.set(torrent.magnetURI, torrent);
+        // Store disk path for direct access
+        torrent.diskPath = newPath;
 
         console.log(`[Magnet] ${torrent.magnetURI.substring(0, 60)}...`);
 
@@ -218,22 +220,26 @@ app.get('/file/:hash', (req, res) => {
 });
 
 // Download file (HTTP fallback)
-app.get('/download/:hash', downloadLimiter, (req, res) => {
+app.get('/download/:hash', (req, res) => {
     for (const [, torrent] of torrents) {
-        if (torrent.infoHash === req.params.hash && torrent.files.length > 0) {
-            const file = torrent.files[0];
+        if (torrent.infoHash === req.params.hash) {
+            // Prefer direct disk access if available (avoids WebTorrent path issues)
+            if (torrent.diskPath && fs.existsSync(torrent.diskPath)) {
+                return safeDownload(res, torrent.diskPath, torrent.name);
+            }
 
-            // Sanitize filename for header
-            const sanitized = file.name
-                .replace(/[^a-zA-Z0-9._-]/g, '_')
-                .substring(0, 255);
-
-            res.setHeader('Content-Disposition', `attachment; filename="${sanitized}"`);
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-
-            file.createReadStream().pipe(res);
-            return;
+            // Fallback to WebTorrent stream (e.g. if memory-only or remote)
+            if (torrent.files && torrent.files.length > 0) {
+                const file = torrent.files[0];
+                res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+                const stream = file.createReadStream();
+                stream.on('error', (err) => {
+                    console.error('Stream error:', err);
+                    if (!res.headersSent) res.status(500).end();
+                });
+                stream.pipe(res);
+                return;
+            }
         }
     }
     res.status(404).json({ error: 'Not found' });
@@ -322,6 +328,8 @@ async function reseedExistingFiles() {
                 });
 
                 torrents.set(torrent.magnetURI, torrent);
+                // Store disk path for direct access
+                torrent.diskPath = filePath;
                 console.log(`[Re-seed] ${fileName} -> ${torrent.infoHash}`);
             } catch (error) {
                 console.error(`[Re-seed Error] ${fileName}:`, error.message);
@@ -351,3 +359,15 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Start re-seeding
     await reseedExistingFiles();
 });
+
+// Helper for safe downloads
+const safeDownload = (res, filePath, fileName) => {
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', (err) => {
+        console.error(`[Download Error] ${fileName}:`, err.message);
+        if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+    });
+    stream.pipe(res);
+};

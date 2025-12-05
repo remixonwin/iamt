@@ -11,12 +11,17 @@ import { getKeyring } from '@/shared/utils/keyring';
 // Storage server URL (localtunnel exposed)
 const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'http://localhost:3001';
 
+// Check if we're in production without a configured storage API
+const isProductionWithoutStorage = typeof window !== 'undefined' 
+    && !window.location.hostname.includes('localhost')
+    && STORAGE_API.includes('localhost');
+
 /**
  * WebTorrent Storage Adapter
  * 
  * Hybrid Architecture:
  * 1. Seeds via Browser WebRTC (P2P)
- * 2. Uploads to Server (HTTP) for reliability/pinning
+ * 2. Uploads to Server (HTTP) for reliability/pinning (if available)
  * 
  * Security Features:
  * - Client-side encryption for private files
@@ -25,9 +30,11 @@ const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'http://localhost:300
  */
 export class WebTorrentStorageAdapter implements StorageAdapter {
     private apiUrl: string;
+    private serverAvailable: boolean;
 
     constructor(apiUrl?: string) {
         this.apiUrl = apiUrl || STORAGE_API;
+        this.serverAvailable = !isProductionWithoutStorage;
     }
 
     /**
@@ -74,31 +81,61 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
             }
         }
 
-        // 1. Start Browser Seeding (Async, don't block upload)
+        // 1. Start Browser Seeding (P2P)
         let magnetURI: string | undefined;
+        let infoHash: string | undefined;
         try {
             magnetURI = await seedFile(fileToUpload);
+            // Extract infoHash from magnetURI
+            const match = magnetURI.match(/btih:([a-fA-F0-9]+)/);
+            infoHash = match ? match[1].toLowerCase() : undefined;
             console.log('[Adapter] Browser seeding started:', magnetURI);
         } catch (err) {
-            console.warn('[Adapter] P2P Seeding failed (using server only):', err);
+            console.warn('[Adapter] P2P Seeding failed:', err);
+            if (!this.serverAvailable) {
+                throw new Error('P2P seeding failed and no storage server available. Please try again.');
+            }
         }
 
-        // 2. Upload to Server (Pinning)
-        const formData = new FormData();
-        formData.append('file', fileToUpload);
+        let cid: string;
+        let serverResult: { infoHash: string; size: number; magnetURI?: string } | null = null;
 
-        const response = await fetch(`${this.apiUrl}/upload`, {
-            method: 'POST',
-            body: formData,
-        });
+        // 2. Upload to Server (Pinning) - only if server is available
+        if (this.serverAvailable) {
+            try {
+                const formData = new FormData();
+                formData.append('file', fileToUpload);
 
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Server upload failed: ${error}`);
+                const response = await fetch(`${this.apiUrl}/upload`, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    console.warn('[Adapter] Server upload failed:', error);
+                    // Don't throw if P2P succeeded
+                    if (!infoHash) {
+                        throw new Error(`Upload failed: ${error}`);
+                    }
+                } else {
+                    serverResult = await response.json();
+                }
+            } catch (err) {
+                console.warn('[Adapter] Server upload error:', err);
+                // Continue with P2P-only if we have infoHash
+                if (!infoHash) {
+                    throw err;
+                }
+            }
         }
 
-        const result = await response.json();
-        const cid = result.infoHash;
+        // Use server infoHash if available, otherwise use P2P infoHash
+        cid = serverResult?.infoHash || infoHash!;
+
+        if (!cid) {
+            throw new Error('Failed to get file identifier from P2P or server');
+        }
 
         // Store encryption key in local keyring for private files
         if (visibility === 'private' && isCryptoSupported()) {
@@ -131,8 +168,8 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
 
         return {
             cid,
-            url: magnetURI || result.magnetURI,
-            size: result.size,
+            url: magnetURI || serverResult?.magnetURI || '',
+            size: serverResult?.size || fileToUpload.size,
             visibility,
             encryptionMetadata: visibility !== 'public' ? {
                 iv: encryptionIv!,
@@ -147,7 +184,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
      * Download file: Hybrid Strategy
      * 1. Try IPFS Gateway (legacy)
      * 2. Try P2P Download (WebRTC)
-     * 3. Fallback to Server HTTP Download
+     * 3. Fallback to Server HTTP Download (if available)
      * 
      * Note: Decryption is handled separately by the caller
      * using downloadAndDecrypt() for encrypted files
@@ -160,20 +197,23 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
             return response.blob();
         }
 
-        // Try P2P First? 
-        // We need magnet URI for P2P. Gun data has it, but this method takes CID only.
-        // If we only have CID, we can construct Magnet URI but we need exact file name or just infoHash default.
-        // Magnet: `magnet:?xt=urn:btih:${cid}&tr=...`
+        // Try P2P First
+        // Construct magnet URI from infoHash
         const magnetURI = `magnet:?xt=urn:btih:${cid}&dn=${cid}&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.btorrent.xyz`;
 
         try {
             console.log('[Adapter] Attempting P2P download...');
             return await downloadFileP2P(magnetURI);
         } catch (err) {
-            console.warn('[Adapter] P2P download failed/timeout, falling back to HTTP:', err);
+            console.warn('[Adapter] P2P download failed/timeout:', err);
+            
+            // If no server available, P2P was our only option
+            if (!this.serverAvailable) {
+                throw new Error('P2P download failed and no storage server available. The file may not be seeded by any peers.');
+            }
         }
 
-        // Fallback to Server HTTP
+        // Fallback to Server HTTP (only if server is available)
         console.log('[Adapter] Falling back to Server HTTP...');
         const response = await fetch(`${this.apiUrl}/download/${cid}`);
 
