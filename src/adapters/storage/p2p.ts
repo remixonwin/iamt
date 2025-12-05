@@ -77,8 +77,19 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
     if (!client) throw new Error('WebTorrent not supported');
 
     return new Promise((resolve, reject) => {
-        // Check if we already have it
-        const existing = client.get(magnetURI);
+        // Check if we already have it by looking for matching torrent
+        // client.get() returns Torrent | void, not a promise
+        let existing = null;
+        try {
+            // Extract infoHash from magnetURI for lookup
+            const match = magnetURI.match(/btih:([a-fA-F0-9]+)/);
+            if (match) {
+                existing = client.torrents.find(t => t.infoHash === match[1].toLowerCase());
+            }
+        } catch {
+            // Ignore lookup errors
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (existing && (existing as any).progress === 1) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,7 +100,7 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             return;
         }
 
-        // Prevent duplicate add
+        // Prevent duplicate add - if existing but not done, wait for it
         if (existing) {
             // Already downloading, wait for it
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

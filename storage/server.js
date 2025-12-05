@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3001;
 const FILES_DIR = path.join(__dirname, 'files');
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
     : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:8765'];
 
@@ -97,7 +97,7 @@ app.use(generalLimiter);
 // Multer for file uploads with validation
 const upload = multer({
     dest: FILES_DIR,
-    limits: { 
+    limits: {
         fileSize: 500 * 1024 * 1024, // 500MB max
         files: 1 // One file per request
     },
@@ -106,11 +106,11 @@ const upload = multer({
         const sanitized = file.originalname
             .replace(/[^a-zA-Z0-9._-]/g, '_')
             .substring(0, 255);
-        
+
         if (!sanitized || sanitized.length === 0) {
             return cb(new Error('Invalid filename'));
         }
-        
+
         file.originalname = sanitized;
         cb(null, true);
     }
@@ -136,7 +136,7 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
         const filePath = req.file.path;
         const fileName = req.file.originalname;
         const newPath = path.join(FILES_DIR, `${Date.now()}-${fileName}`);
-        
+
         // Safe rename with error handling
         try {
             fs.renameSync(filePath, newPath);
@@ -151,7 +151,7 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
             const timeout = setTimeout(() => {
                 reject(new Error('Torrent creation timeout'));
             }, 30000);
-            
+
             client.seed(newPath, {
                 name: fileName,
                 announce: [
@@ -162,7 +162,7 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
                 clearTimeout(timeout);
                 resolve(torrent);
             });
-            
+
             client.on('error', (err) => {
                 clearTimeout(timeout);
                 reject(err);
@@ -222,16 +222,16 @@ app.get('/download/:hash', downloadLimiter, (req, res) => {
     for (const [, torrent] of torrents) {
         if (torrent.infoHash === req.params.hash && torrent.files.length > 0) {
             const file = torrent.files[0];
-            
+
             // Sanitize filename for header
             const sanitized = file.name
                 .replace(/[^a-zA-Z0-9._-]/g, '_')
                 .substring(0, 255);
-            
+
             res.setHeader('Content-Disposition', `attachment; filename="${sanitized}"`);
             res.setHeader('Content-Type', 'application/octet-stream');
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-            
+
             file.createReadStream().pipe(res);
             return;
         }
@@ -255,18 +255,18 @@ app.delete('/file/:hash', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error('[Error]', err);
-    
+
     if (err instanceof multer.MulterError) {
         if (err.code === 'FILE_TOO_LARGE') {
             return res.status(413).json({ error: 'File too large (max 500MB)' });
         }
         return res.status(400).json({ error: 'File upload error: ' + err.message });
     }
-    
+
     if (err.message && err.message.includes('CORS')) {
         return res.status(403).json({ error: 'CORS not allowed' });
     }
-    
+
     res.status(500).json({ error: 'Internal server error' });
 });
 
@@ -275,7 +275,66 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// Re-seed existing files on startup
+async function reseedExistingFiles() {
+    try {
+        if (!fs.existsSync(FILES_DIR)) return;
+
+        const files = fs.readdirSync(FILES_DIR);
+        console.log(`[Startup] Found ${files.length} existing files to re-seed`);
+
+        for (const fileName of files) {
+            // Skip hidden files or non-files
+            if (fileName.startsWith('.')) continue;
+
+            const filePath = path.join(FILES_DIR, fileName);
+            try {
+                const stat = fs.statSync(filePath);
+                if (!stat.isFile()) continue;
+            } catch (e) {
+                continue;
+            }
+
+            try {
+                const torrent = await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Seeding timeout'));
+                    }, 10000);
+
+                    // Reconstruct name (simple heuristic)
+                    const cleanName = fileName.replace(/^\d+-/, '');
+
+                    client.seed(filePath, {
+                        name: cleanName,
+                        announce: [
+                            'wss://tracker.openwebtorrent.com',
+                            'wss://tracker.btorrent.xyz',
+                        ],
+                    }, (t) => {
+                        clearTimeout(timeout);
+                        resolve(t);
+                    });
+
+                    client.on('error', (err) => {
+                        clearTimeout(timeout);
+                        reject(err);
+                    });
+                });
+
+                torrents.set(torrent.magnetURI, torrent);
+                console.log(`[Re-seed] ${fileName} -> ${torrent.infoHash}`);
+            } catch (error) {
+                console.error(`[Re-seed Error] ${fileName}:`, error.message);
+            }
+        }
+
+        console.log(`[Startup] Re-seeding complete. ${torrents.size} torrents active.`);
+    } catch (err) {
+        console.error('[Startup] Re-seeding failed:', err);
+    }
+}
+
+app.listen(PORT, '0.0.0.0', async () => {
     console.log('');
     console.log('🌐 IAMT WebTorrent P2P Storage');
     console.log('');
@@ -288,4 +347,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('   ✓ CORS restrictions');
     console.log('   ✓ File size limits');
     console.log('');
+
+    // Start re-seeding
+    await reseedExistingFiles();
 });
