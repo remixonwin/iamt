@@ -2,11 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { FileUploader, FilePreview, FileGrid, type UploadedFile } from '@/shared/components';
-import { IndexedDBStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
+import { PinataStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
 
-// Initialize adapters
-const storage = new IndexedDBStorageAdapter();
+// Pinata JWT - In production, use environment variables
+const PINATA_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySW5mb3JtYXRpb24iOnsiaWQiOiI2NWUzN2I1OC0xM2VlLTQ0ZWItOTEzOC05NTRjZWMyODAwNjciLCJlbWFpbCI6InJlbWl4b253aW5AZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInBpbl9wb2xpY3kiOnsicmVnaW9ucyI6W3siZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiTllDMSJ9XSwidmVyc2lvbiI6MX0sIm1mYV9lbmFibGVkIjpmYWxzZSwic3RhdHVzIjoiQUNUSVZFIn0sImF1dGhlbnRpY2F0aW9uVHlwZSI6InNjb3BlZEtleSIsInNjb3BlZEtleUtleSI6IjQyYjJhNTA1NmM3ZTdlZWE3NDlmIiwic2NvcGVkS2V5U2VjcmV0IjoiNzk1NGMyMmFlMDRmNzg4NDE5MDJiY2RhNWZlYTQ3MTQ1ZmYyNDQxYzBhMWQwODc2ZTk2ZmFhNTEyNTg0MmRmMSIsImV4cCI6MTc5NjQzNjc5Mn0.6LdAEHTCcBhhOJfISlszUcC_0e4PvA--co5mmWK1JEw';
+
+// Initialize storage (IPFS via Pinata)
+const storage = new PinataStorageAdapter(PINATA_JWT);
 
 interface StoredFile {
   id: string;
@@ -14,6 +17,7 @@ interface StoredFile {
   size: number;
   type: string;
   preview?: string;
+  url?: string;
   uploadedAt: number;
   deviceId?: string;
 }
@@ -29,74 +33,44 @@ export default function Home() {
   // Load files and set up sync
   useEffect(() => {
     async function init() {
-      // Initialize Gun.js adapter (client-side only)
       dbRef.current = new GunDatabaseAdapter();
       const db = dbRef.current;
 
-      // Load local files from IndexedDB
-      try {
-        const localFiles = await storage.getAllFiles();
-        const localFileMap = new Map(localFiles.map(f => [f.id, f]));
+      // Subscribe to Gun.js for real-time sync
+      const unsubscribe = db.subscribe<GunFileMetadata & { url?: string }>('files', (syncedFiles) => {
+        setSyncStatus('synced');
 
-        // Subscribe to Gun.js for real-time sync
-        const unsubscribe = db.subscribe<GunFileMetadata>('files', (syncedFiles) => {
+        const files: StoredFile[] = Object.values(syncedFiles)
+          .filter((meta) => meta && meta.id)
+          .map((meta) => ({
+            id: meta.id,
+            name: meta.name,
+            size: meta.size,
+            type: meta.type,
+            uploadedAt: meta.createdAt,
+            deviceId: meta.deviceId,
+            url: meta.url,
+            preview: meta.url, // Use IPFS URL as preview
+          }));
+
+        setStoredFiles(files);
+      });
+
+      // Initial load delay
+      setTimeout(() => {
+        if (syncStatus === 'connecting') {
           setSyncStatus('synced');
-
-          // Merge synced metadata with local files
-          const merged: StoredFile[] = [];
-
-          Object.values(syncedFiles).forEach((meta) => {
-            if (meta && meta.id) {
-              const localFile = localFileMap.get(meta.id);
-              merged.push({
-                id: meta.id,
-                name: meta.name,
-                size: meta.size,
-                type: meta.type,
-                uploadedAt: meta.createdAt,
-                deviceId: meta.deviceId,
-                preview: localFile?.preview, // Use local preview if available
-              });
-            }
-          });
-
-          // Also include local-only files not yet synced
-          localFiles.forEach((local) => {
-            if (!syncedFiles[local.id]) {
-              merged.push({
-                id: local.id,
-                name: local.name,
-                size: local.size,
-                type: local.type,
-                uploadedAt: local.createdAt,
-                preview: local.preview,
-              });
-            }
-          });
-
-          setStoredFiles(merged);
-        });
-
-        // Initial load
-        setTimeout(() => {
-          if (syncStatus === 'connecting') {
-            setSyncStatus('synced');
-          }
-          setIsLoading(false);
-        }, 1000);
-
-        return () => unsubscribe();
-      } catch (error) {
-        console.error('Failed to initialize:', error);
-        setSyncStatus('offline');
+        }
         setIsLoading(false);
-      }
+      }, 1500);
+
+      return () => unsubscribe();
     }
 
     init();
   }, []);
 
-  // Handle new files selected
+  // Handle new files
   const handleFilesSelected = useCallback((files: UploadedFile[]) => {
     setUploadQueue((prev) => [...prev, ...files]);
     files.forEach((uploadedFile) => {
@@ -104,26 +78,26 @@ export default function Home() {
     });
   }, []);
 
-  // Upload file to IndexedDB and sync metadata to Gun.js
+  // Upload file to IPFS and sync metadata
   const uploadFile = async (uploadedFile: UploadedFile) => {
     const { id, file } = uploadedFile;
     const db = dbRef.current;
 
-    // Simulate progress while uploading
+    // Update progress
     let progress = 0;
     const progressInterval = setInterval(() => {
-      progress += Math.random() * 20 + 10;
-      if (progress < 90) {
+      progress += Math.random() * 15 + 5;
+      if (progress < 80) {
         setUploadQueue((prev) =>
           prev.map((f) =>
             f.id === id ? { ...f, progress, status: 'uploading' as const } : f
           )
         );
       }
-    }, 100);
+    }, 200);
 
     try {
-      // Store in IndexedDB
+      // Upload to IPFS via Pinata
       const result = await storage.upload(file);
 
       clearInterval(progressInterval);
@@ -135,33 +109,27 @@ export default function Home() {
         )
       );
 
-      // Create metadata for Gun.js sync
-      const metadata: GunFileMetadata = {
+      // Sync metadata to Gun.js (includes IPFS URL!)
+      const metadata = {
         id: result.cid,
         name: file.name,
         size: file.size,
         type: file.type,
         createdAt: Date.now(),
         deviceId: db?.getDeviceId() || 'unknown',
+        url: result.url, // IPFS gateway URL
       };
 
-      // Sync to Gun.js (will propagate to other devices)
       if (db) {
         await db.set('files', result.cid, metadata);
       }
 
       // Add to local state
-      const newStoredFile: StoredFile = {
-        id: result.cid,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        preview: uploadedFile.preview,
-        uploadedAt: Date.now(),
-        deviceId: db?.getDeviceId(),
-      };
-
-      setStoredFiles((prev) => [...prev, newStoredFile]);
+      setStoredFiles((prev) => [...prev, {
+        ...metadata,
+        uploadedAt: metadata.createdAt,
+        preview: result.url,
+      }]);
 
       // Remove from queue
       setTimeout(() => {
@@ -170,9 +138,10 @@ export default function Home() {
 
     } catch (error) {
       clearInterval(progressInterval);
+      console.error('Upload failed:', error);
       setUploadQueue((prev) =>
         prev.map((f) =>
-          f.id === id ? { ...f, status: 'error' as const, error: 'Upload failed' } : f
+          f.id === id ? { ...f, status: 'error' as const, error: 'IPFS upload failed' } : f
         )
       );
     }
@@ -180,11 +149,7 @@ export default function Home() {
 
   // Remove from queue
   const handleRemoveFromQueue = (id: string) => {
-    setUploadQueue((prev) => {
-      const file = prev.find((f) => f.id === id);
-      if (file?.preview) URL.revokeObjectURL(file.preview);
-      return prev.filter((f) => f.id !== id);
-    });
+    setUploadQueue((prev) => prev.filter((f) => f.id !== id));
   };
 
   // Delete file
@@ -201,16 +166,11 @@ export default function Home() {
     }
   };
 
-  // Preview file
-  const handlePreviewFile = async (id: string) => {
-    try {
-      const blob = await storage.download(id);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-    } catch (error) {
-      // File might be from another device, not stored locally
-      console.error('File not available locally:', error);
-      alert('This file is from another device and not available locally.');
+  // Preview file - open IPFS URL
+  const handlePreviewFile = (id: string) => {
+    const file = storedFiles.find((f) => f.id === id);
+    if (file?.url) {
+      window.open(file.url, '_blank');
     }
   };
 
@@ -235,7 +195,7 @@ export default function Home() {
         <div className="text-center mb-12">
           <div className="inline-block mb-4 px-4 py-2 rounded-full bg-[var(--surface)] border border-[var(--border)]">
             <span className="text-sm font-medium text-[var(--accent-light)]">
-              🌐 P2P Synced Storage
+              🌐 IPFS + P2P Synced Storage
             </span>
           </div>
 
@@ -244,7 +204,7 @@ export default function Home() {
           </h1>
 
           <p className="text-lg text-gray-400 max-w-xl mx-auto">
-            Upload files. They sync across all your devices in real-time.
+            Files stored on IPFS. Access from any device, anywhere.
           </p>
         </div>
 
@@ -259,7 +219,7 @@ export default function Home() {
               <div className="h-8 w-px bg-[var(--border)]" />
               <div>
                 <p className="text-2xl font-bold">{formatFileSize(totalSize)}</p>
-                <p className="text-xs text-gray-500">Total Size</p>
+                <p className="text-xs text-gray-500">on IPFS</p>
               </div>
               <div className="h-8 w-px bg-[var(--border)]" />
               <div className="flex items-center gap-2">
@@ -296,7 +256,7 @@ export default function Home() {
                   d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                 />
               </svg>
-              Upload
+              Upload to IPFS
             </span>
           </button>
           <button
@@ -322,7 +282,7 @@ export default function Home() {
           {isLoading ? (
             <div className="text-center py-16">
               <div className="w-12 h-12 mx-auto mb-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
-              <p className="text-gray-400">Connecting to sync network...</p>
+              <p className="text-gray-400">Connecting to IPFS network...</p>
             </div>
           ) : activeTab === 'upload' ? (
             <div className="space-y-6">
@@ -332,7 +292,7 @@ export default function Home() {
                 <div className="space-y-3">
                   <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
-                    Uploading {uploadQueue.length} file{uploadQueue.length !== 1 ? 's' : ''}
+                    Uploading to IPFS...
                   </h3>
                   {uploadQueue.map((file) => (
                     <FilePreview
@@ -356,7 +316,7 @@ export default function Home() {
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-gray-500">
           <p>
-            P2P sync via Gun.js • Local storage via IndexedDB •
+            Stored on IPFS via Pinata • Synced via Gun.js •
             <a href="https://github.com/remixonwin/iamt" className="text-[var(--accent)] hover:underline ml-1">
               GitHub
             </a>
