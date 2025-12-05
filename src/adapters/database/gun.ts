@@ -9,14 +9,19 @@
 // Use environment variable or fallback to localhost
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
-// Fallback relays
+// Fallback relays (updated - Heroku relays deprecated)
 const FALLBACK_RELAYS = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-eu.herokuapp.com/gun',
+    'https://gun-us.herokuapp.com/gun',
+    'https://gunjs.herokuapp.com/gun',
+    'wss://gun-relay.meething.space/gun',
 ];
 
 // All relays - primary first, then fallbacks
-const RELAYS = [PRIMARY_RELAY, ...FALLBACK_RELAYS];
+// In production without custom relay, use public relays only
+const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
+const RELAYS = isProduction && PRIMARY_RELAY.includes('localhost') 
+    ? FALLBACK_RELAYS 
+    : [PRIMARY_RELAY, ...FALLBACK_RELAYS];
 
 // App namespace
 const APP_NAMESPACE = 'iamt-files-v3';
