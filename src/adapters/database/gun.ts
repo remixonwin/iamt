@@ -1,26 +1,22 @@
 /**
  * Gun.js Database Adapter
  * 
- * Provides real-time P2P sync of file metadata across devices.
- * Client-side only - Gun.js doesn't work in SSR.
+ * Connects to LOCALTUNNEL relay for public access.
  */
 
 'use client';
 
-// Multiple relay servers for better connectivity
-const RELAYS = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-matrix.herokuapp.com/gun',
-    'https://gun-ams1.madmex.io:8765/gun',
-    'https://gun-sjc1.madmex.io:8765/gun',
-    'https://gunjs.herokuapp.com/gun',
-    'https://gun-eu.herokuapp.com/gun',
-    'https://gun-nyc.herokuapp.com/gun',
-    'https://e2eec.herokuapp.com/gun',
-];
+// PUBLIC RELAY via localtunnel (accessible from anywhere!)
+const PUBLIC_RELAY = 'https://iamt-relay.loca.lt/gun';
+
+// Fallback: local network relay
+const LOCAL_RELAY = 'http://192.168.1.181:8765/gun';
+
+// All relays - public first
+const RELAYS = [PUBLIC_RELAY, LOCAL_RELAY];
 
 // App namespace
-const APP_NAMESPACE = 'iamt-files-v2';
+const APP_NAMESPACE = 'iamt-files-v3';
 
 // Type for file metadata
 export interface GunFileMetadata {
@@ -48,8 +44,7 @@ function getDeviceId(): string {
 }
 
 /**
- * Gun.js Database Adapter with improved reliability
- * Note: Must be used client-side only
+ * Gun.js Database Adapter
  */
 export class GunDatabaseAdapter {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,7 +55,6 @@ export class GunDatabaseAdapter {
     constructor() {
         this.deviceId = getDeviceId();
 
-        // Only initialize Gun.js on client side
         if (typeof window !== 'undefined') {
             this.initGun();
         }
@@ -70,30 +64,24 @@ export class GunDatabaseAdapter {
         if (this.initialized) return;
         this.initialized = true;
 
-        // Dynamic import to avoid SSR issues
         const Gun = (await import('gun')).default;
 
-        // Initialize Gun with multiple peers
         this.gun = Gun({
             peers: RELAYS,
             localStorage: true,
         });
 
-        console.log('[Gun.js] Connecting to', RELAYS.length, 'relays...');
+        console.log('[Gun.js] Connecting to:', PUBLIC_RELAY);
     }
 
     private async ensureGun() {
         if (!this.gun && typeof window !== 'undefined') {
             await this.initGun();
-            // Small delay to let Gun connect
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
         return this.gun;
     }
 
-    /**
-     * Get all items at a path
-     */
     async get<T>(path: string): Promise<Record<string, T> | null> {
         const gun = await this.ensureGun();
         if (!gun) return null;
@@ -110,21 +98,19 @@ export class GunDatabaseAdapter {
             });
 
             setTimeout(() => {
+                console.log('[Gun.js] Get:', path, '→', Object.keys(data).length, 'items');
                 resolve(Object.keys(data).length > 0 ? data : null);
             }, 2000);
         });
     }
 
-    /**
-     * Set a value at a path
-     */
     async set<T extends object>(path: string, key: string, value: T): Promise<void> {
         const gun = await this.ensureGun();
         if (!gun) return;
 
         return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.log('[Gun.js] Set timeout, data may sync later');
+                console.log('[Gun.js] Set timeout:', key);
                 resolve();
             }, 5000);
 
@@ -140,9 +126,6 @@ export class GunDatabaseAdapter {
         });
     }
 
-    /**
-     * Subscribe to real-time updates
-     */
     subscribe<T>(
         path: string,
         callback: (data: Record<string, T>) => void
@@ -152,7 +135,6 @@ export class GunDatabaseAdapter {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let ref: any = null;
 
-        // Initialize asynchronously
         this.ensureGun().then((gun) => {
             if (!gun) return;
 
@@ -171,7 +153,7 @@ export class GunDatabaseAdapter {
 
                 clearTimeout(debounceTimeout);
                 debounceTimeout = setTimeout(() => {
-                    console.log('[Gun.js] Sync update:', Object.keys(data).length, 'items');
+                    console.log('[Gun.js] Sync:', Object.keys(data).length, 'files');
                     callback({ ...data });
                 }, 100);
             });
@@ -183,24 +165,18 @@ export class GunDatabaseAdapter {
         };
     }
 
-    /**
-     * Delete a value
-     */
     async delete(path: string, key: string): Promise<void> {
         const gun = await this.ensureGun();
         if (!gun) return;
 
         return new Promise((resolve) => {
             gun.get(APP_NAMESPACE).get(path).get(key).put(null, () => {
-                console.log('[Gun.js] Delete:', key);
+                console.log('[Gun.js] Deleted:', key);
                 resolve();
             });
         });
     }
 
-    /**
-     * Check if a key exists
-     */
     async exists(path: string, key: string): Promise<boolean> {
         const gun = await this.ensureGun();
         if (!gun) return false;
@@ -212,9 +188,6 @@ export class GunDatabaseAdapter {
         });
     }
 
-    /**
-     * Get the current device ID
-     */
     getDeviceId(): string {
         return this.deviceId;
     }
