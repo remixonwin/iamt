@@ -48,20 +48,33 @@ export function FileGrid({ files, onDelete, onPreview }: FileGridProps) {
                             className="aspect-square rounded-xl mb-3 flex items-center justify-center overflow-hidden"
                             style={{ backgroundColor: `${typeInfo.color}15` }}
                         >
-                            {file.preview && (typeInfo.category === 'image' || typeInfo.category === 'video') ? (
-                                typeInfo.category === 'image' ? (
-                                    <img
+                            {file.preview && typeInfo.category === 'image' ? (
+                                <img
+                                    src={file.preview}
+                                    alt={file.name}
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : file.preview && typeInfo.category === 'video' ? (
+                                <video
+                                    src={file.preview}
+                                    className="w-full h-full object-cover"
+                                    muted
+                                />
+                            ) : file.preview && typeInfo.category === 'audio' ? (
+                                <div className="w-full h-full flex flex-col items-center justify-center p-2">
+                                    <span className="text-3xl mb-2">🎵</span>
+                                    <audio
                                         src={file.preview}
-                                        alt={file.name}
-                                        className="w-full h-full object-cover"
+                                        controls
+                                        className="w-full h-8"
+                                        onClick={(e) => e.stopPropagation()}
                                     />
-                                ) : (
-                                    <video
-                                        src={file.preview}
-                                        className="w-full h-full object-cover"
-                                        muted
-                                    />
-                                )
+                                </div>
+                            ) : file.preview && typeInfo.category === 'pdf' ? (
+                                <div className="w-full h-full flex flex-col items-center justify-center">
+                                    <span className="text-4xl mb-1">📄</span>
+                                    <span className="text-xs text-gray-400">Click to view</span>
+                                </div>
                             ) : (
                                 <span className="text-4xl">{typeInfo.icon}</span>
                             )}

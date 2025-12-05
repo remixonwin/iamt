@@ -59,10 +59,8 @@ export function FileUploader({
                 status: 'pending',
             };
 
-            // Create preview URL for images and videos
-            if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-                uploadedFile.preview = URL.createObjectURL(file);
-            }
+            // Create preview URL for all supported file types (PDF, audio, video, images)
+            uploadedFile.preview = URL.createObjectURL(file);
 
             validFiles.push(uploadedFile);
         });
