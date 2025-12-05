@@ -1,213 +1,255 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { FileUploader, FilePreview, FileGrid, type UploadedFile } from '@/shared/components';
+import { getFileTypeInfo, formatFileSize } from '@/shared/utils';
 
-// Simulating adapter pattern - in production, these would come from @/adapters
-interface DataItem {
+interface StoredFile {
   id: string;
-  content: string;
-  timestamp: number;
+  name: string;
+  size: number;
+  type: string;
+  preview?: string;
+  uploadedAt: number;
 }
 
 export default function Home() {
-  const [items, setItems] = useState<DataItem[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [uploadQueue, setUploadQueue] = useState<UploadedFile[]>([]);
+  const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
+  const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
 
-  // Simulate fetching from decentralized database
+  // Load stored files from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem('dweb-items');
+    const stored = localStorage.getItem('dweb-files');
     if (stored) {
-      setItems(JSON.parse(stored));
+      setStoredFiles(JSON.parse(stored));
     }
   }, []);
 
-  // Simulate saving to decentralized storage
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputValue.trim()) return;
+  // Handle new files selected
+  const handleFilesSelected = (files: UploadedFile[]) => {
+    setUploadQueue((prev) => [...prev, ...files]);
 
-    setIsLoading(true);
-    setStatus('saving');
-
-    // Simulate network delay (like IPFS/Gun.js)
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    const newItem: DataItem = {
-      id: `item-${Date.now()}`,
-      content: inputValue,
-      timestamp: Date.now(),
-    };
-
-    const updatedItems = [...items, newItem];
-    setItems(updatedItems);
-    localStorage.setItem('dweb-items', JSON.stringify(updatedItems));
-
-    setInputValue('');
-    setIsLoading(false);
-    setStatus('saved');
-
-    setTimeout(() => setStatus('idle'), 2000);
+    // Simulate upload for each file
+    files.forEach((file) => {
+      simulateUpload(file.id);
+    });
   };
 
-  const handleDelete = (id: string) => {
-    const updatedItems = items.filter((item) => item.id !== id);
-    setItems(updatedItems);
-    localStorage.setItem('dweb-items', JSON.stringify(updatedItems));
+  // Simulate upload progress
+  const simulateUpload = (fileId: string) => {
+    let progress = 0;
+
+    const interval = setInterval(() => {
+      progress += Math.random() * 15 + 5;
+
+      if (progress >= 100) {
+        clearInterval(interval);
+        progress = 100;
+
+        // Mark as complete
+        setUploadQueue((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, progress: 100, status: 'complete' as const }
+              : f
+          )
+        );
+
+        // Add to stored files after a short delay
+        setTimeout(() => {
+          setUploadQueue((prev) => {
+            const completedFile = prev.find((f) => f.id === fileId);
+            if (completedFile) {
+              const newStoredFile: StoredFile = {
+                id: completedFile.id,
+                name: completedFile.file.name,
+                size: completedFile.file.size,
+                type: completedFile.file.type,
+                preview: completedFile.preview,
+                uploadedAt: Date.now(),
+              };
+
+              setStoredFiles((prevStored) => {
+                const updated = [...prevStored, newStoredFile];
+                localStorage.setItem('dweb-files', JSON.stringify(updated));
+                return updated;
+              });
+            }
+            return prev.filter((f) => f.id !== fileId);
+          });
+        }, 1000);
+      } else {
+        setUploadQueue((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, progress: Math.min(progress, 99), status: 'uploading' as const }
+              : f
+          )
+        );
+      }
+    }, 200);
   };
 
-  const handleClearAll = () => {
-    setItems([]);
-    localStorage.removeItem('dweb-items');
+  // Remove from upload queue
+  const handleRemoveFromQueue = (id: string) => {
+    setUploadQueue((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.preview) URL.revokeObjectURL(file.preview);
+      return prev.filter((f) => f.id !== id);
+    });
   };
+
+  // Delete stored file
+  const handleDeleteFile = (id: string) => {
+    setStoredFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.preview) URL.revokeObjectURL(file.preview);
+      const updated = prev.filter((f) => f.id !== id);
+      localStorage.setItem('dweb-files', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Preview file (placeholder)
+  const handlePreviewFile = (id: string) => {
+    const file = storedFiles.find((f) => f.id === id);
+    if (file?.preview) {
+      window.open(file.preview, '_blank');
+    }
+  };
+
+  // Calculate stats
+  const totalSize = storedFiles.reduce((acc, f) => acc + f.size, 0);
+  const filesByType = storedFiles.reduce((acc, f) => {
+    const info = getFileTypeInfo({ type: f.type } as File);
+    acc[info.category] = (acc[info.category] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
   return (
     <main className="gradient-bg min-h-screen">
-      {/* Hero Section */}
-      <div className="max-w-4xl mx-auto px-6 py-16">
-        <div className="text-center mb-16">
+      <div className="max-w-5xl mx-auto px-6 py-12">
+        {/* Header */}
+        <div className="text-center mb-12">
           <div className="inline-block mb-4 px-4 py-2 rounded-full bg-[var(--surface)] border border-[var(--border)]">
             <span className="text-sm font-medium text-[var(--accent-light)]">
-              🌐 Decentralized Architecture MVP
+              🌐 Decentralized File Storage
             </span>
           </div>
 
-          <h1 className="text-5xl font-bold mb-6">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">
             <span className="gradient-text">IAMT</span>
           </h1>
 
-          <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-            A modular, TDD-first, future-proof web application built with
-            adaptable decentralized storage patterns.
+          <p className="text-lg text-gray-400 max-w-xl mx-auto">
+            Upload and store your files on decentralized storage.
+            PDF, audio, video, and images supported.
           </p>
         </div>
 
-        {/* Demo Card */}
-        <div className="glass-card glow p-8 mb-8">
-          <h2 className="text-2xl font-semibold mb-6 flex items-center gap-3">
-            <span className="w-3 h-3 rounded-full bg-[var(--success)] animate-pulse" />
-            Data Storage Demo
-          </h2>
-
-          <form onSubmit={handleSubmit} className="flex gap-4 mb-8">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Enter data to store..."
-              className="input flex-1"
-              disabled={isLoading}
-            />
-            <button
-              type="submit"
-              disabled={isLoading || !inputValue.trim()}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed min-w-[120px]"
-            >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Saving
-                </span>
-              ) : (
-                'Store'
-              )}
-            </button>
-          </form>
-
-          {status === 'saved' && (
-            <div className="mb-6 p-4 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/30 text-[var(--success)]">
-              ✓ Data saved successfully (simulating IPFS/Gun.js storage)
-            </div>
-          )}
-
-          {/* Data List */}
-          <div className="space-y-3">
-            {items.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <p className="text-lg mb-2">No data stored yet</p>
-                <p className="text-sm">Add your first item above to test the adapter pattern</p>
+        {/* Stats Bar */}
+        <div className="glass-card p-4 mb-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-6">
+              <div>
+                <p className="text-2xl font-bold">{storedFiles.length}</p>
+                <p className="text-xs text-gray-500">Files</p>
               </div>
-            ) : (
-              <>
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-sm text-gray-400">
-                    {items.length} item{items.length !== 1 ? 's' : ''} stored
-                  </span>
-                  <button
-                    onClick={handleClearAll}
-                    className="text-sm text-[var(--error)] hover:underline"
-                  >
-                    Clear All
-                  </button>
-                </div>
+              <div className="h-8 w-px bg-[var(--border)]" />
+              <div>
+                <p className="text-2xl font-bold">{formatFileSize(totalSize)}</p>
+                <p className="text-xs text-gray-500">Total Size</p>
+              </div>
+            </div>
 
-                {items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--accent)]/50 transition-all"
-                  >
-                    <div>
-                      <p className="font-medium">{item.content}</p>
-                      <p className="text-xs text-gray-500 mt-1 font-mono">
-                        ID: {item.id}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="text-gray-400 hover:text-[var(--error)] transition-colors p-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </>
-            )}
+            <div className="flex gap-2">
+              {Object.entries(filesByType).map(([type, count]) => (
+                <span
+                  key={type}
+                  className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--surface)]"
+                >
+                  {count} {type}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Architecture Info */}
-        <div className="grid md:grid-cols-3 gap-6">
-          <div className="glass-card p-6">
-            <div className="w-12 h-12 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center mb-4">
-              <span className="text-2xl">🔌</span>
-            </div>
-            <h3 className="font-semibold mb-2">Adapter Pattern</h3>
-            <p className="text-sm text-gray-400">
-              Swap IPFS for Arweave, or Gun.js for Ceramic — without changing app code.
-            </p>
-          </div>
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-8">
+          <button
+            onClick={() => setActiveTab('upload')}
+            className={`px-6 py-3 rounded-xl font-medium transition-all ${activeTab === 'upload'
+                ? 'bg-[var(--accent)] text-white'
+                : 'bg-[var(--surface)] text-gray-400 hover:text-white'
+              }`}
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              Upload
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('files')}
+            className={`px-6 py-3 rounded-xl font-medium transition-all ${activeTab === 'files'
+                ? 'bg-[var(--accent)] text-white'
+                : 'bg-[var(--surface)] text-gray-400 hover:text-white'
+              }`}
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
+                />
+              </svg>
+              My Files ({storedFiles.length})
+            </span>
+          </button>
+        </div>
 
-          <div className="glass-card p-6">
-            <div className="w-12 h-12 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center mb-4">
-              <span className="text-2xl">🧪</span>
-            </div>
-            <h3 className="font-semibold mb-2">TDD First</h3>
-            <p className="text-sm text-gray-400">
-              19 tests passing. Mock adapters enable testing without network calls.
-            </p>
-          </div>
+        {/* Content */}
+        <div className="glass-card glow p-8">
+          {activeTab === 'upload' ? (
+            <div className="space-y-6">
+              <FileUploader onFilesSelected={handleFilesSelected} />
 
-          <div className="glass-card p-6">
-            <div className="w-12 h-12 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center mb-4">
-              <span className="text-2xl">🌐</span>
+              {/* Upload Queue */}
+              {uploadQueue.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
+                    Uploading {uploadQueue.length} file{uploadQueue.length !== 1 ? 's' : ''}
+                  </h3>
+                  {uploadQueue.map((file) => (
+                    <FilePreview
+                      key={file.id}
+                      uploadedFile={file}
+                      onRemove={handleRemoveFromQueue}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-            <h3 className="font-semibold mb-2">Decentralized</h3>
-            <p className="text-sm text-gray-400">
-              Ready for IPFS deployment via Fleek. No central servers required.
-            </p>
-          </div>
+          ) : (
+            <FileGrid
+              files={storedFiles}
+              onDelete={handleDeleteFile}
+              onPreview={handlePreviewFile}
+            />
+          )}
         </div>
 
         {/* Footer */}
-        <footer className="mt-16 text-center text-sm text-gray-500">
-          <p>
-            Built with Next.js 14 • TailwindCSS • Vitest
+        <footer className="mt-12 text-center text-sm text-gray-500">
+          <p>Built with Next.js • Decentralized Architecture •
+            <a href="https://github.com/remixonwin/iamt" className="text-[var(--accent)] hover:underline ml-1">
+              GitHub
+            </a>
           </p>
         </footer>
       </div>
