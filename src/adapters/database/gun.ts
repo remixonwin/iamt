@@ -10,11 +10,7 @@
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
 // Fallback relays (updated - Heroku relays deprecated)
-const FALLBACK_RELAYS = [
-    'https://gun-us.herokuapp.com/gun',
-    'https://gunjs.herokuapp.com/gun',
-    'wss://gun-relay.meething.space/gun',
-];
+const FALLBACK_RELAYS: string[] = [];
 
 // All relays - primary first, then fallbacks
 // In production without custom relay, use public relays only
