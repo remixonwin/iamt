@@ -9,8 +9,8 @@ test.describe('Homepage', () => {
         await expect(page.locator('h1')).toContainText('IAMT');
     });
 
-    test('should show the decentralized storage badge', async ({ page }) => {
-        await expect(page.getByText('Decentralized File Storage')).toBeVisible();
+    test('should show the IPFS storage badge', async ({ page }) => {
+        await expect(page.getByText('IPFS + P2P Synced Storage')).toBeVisible();
     });
 
     test('should have upload tab selected by default', async ({ page }) => {
