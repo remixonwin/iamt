@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# IAMT - Decentralized Web Application
 
-## Getting Started
+A **modular, TDD-first, future-proof** decentralized web application with swappable storage adapters.
 
-First, run the development server:
+🌐 **Live Demo**: [https://iamt-qkgjlzlo7-remixonwins-projects.vercel.app](https://iamt-qkgjlzlo7-remixonwins-projects.vercel.app)
+
+## Features
+
+- 🔌 **Adapter Pattern** - Swap IPFS for Arweave, Gun.js for Ceramic without code changes
+- 🧪 **TDD First** - 19 tests passing, mock adapters for offline testing
+- 🎨 **Premium UI** - Glassmorphism, animated gradients, dark mode
+- 🌐 **Decentralized Ready** - Static export for IPFS/Fleek deployment
+
+## Quick Start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev     # Start dev server
+npm run test    # Run tests in watch mode
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Architecture
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+src/
+├── adapters/           # Abstraction layer
+│   ├── storage/        # IPFS/Arweave adapters
+│   └── database/       # Gun.js/Ceramic adapters
+├── app/                # Next.js pages
+└── features/           # Feature modules (coming soon)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tech Stack
 
-## Learn More
+- **Framework**: Next.js 14 (static export)
+- **Styling**: TailwindCSS
+- **Testing**: Vitest + Testing Library
+- **Deployment**: Vercel
 
-To learn more about Next.js, take a look at the following resources:
+## License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
