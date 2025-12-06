@@ -12,6 +12,21 @@ import * as bip39 from 'bip39';
 import bs58 from 'bs58';
 import type { UserProfile, UserKeypair, SignupRequest, LoginRequest, RecoveryRequest } from './types';
 
+type RawUserProfile = UserProfile & { _?: unknown };
+
+function sanitizeUserProfile(profile: RawUserProfile): UserProfile {
+    const { _, ...rest } = profile;
+    const sanitized = { ...rest } as Record<string, unknown>;
+
+    for (const key of Object.keys(sanitized)) {
+        if (sanitized[key] === undefined) {
+            delete sanitized[key];
+        }
+    }
+
+    return sanitized as UserProfile;
+}
+
 // Gun.js relay configuration
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
@@ -254,7 +269,7 @@ export class GunSeaAdapter {
                     };
 
                     // Store profile in user's graph
-                    await this.saveProfile(profile);
+                    const storedProfile = await this.saveProfile(profile);
 
                     // Create keypair record
                     const keypair: UserKeypair = {
@@ -268,10 +283,10 @@ export class GunSeaAdapter {
                     };
 
                     // Save session
-                    this.saveSession(profile);
-                    this.currentProfile = profile;
+                    this.saveSession(storedProfile);
+                    this.currentProfile = storedProfile;
 
-                    resolve({ user: profile, seedPhrase, keypair });
+                    resolve({ user: storedProfile, seedPhrase, keypair });
                 } catch (error) {
                     reject(error);
                 }
@@ -316,13 +331,13 @@ export class GunSeaAdapter {
 
         // Update last login
         profile.lastLoginAt = Date.now();
-        await this.saveProfile(profile);
+        const storedProfile = await this.saveProfile(profile);
 
         // Save session
-        this.saveSession(profile);
-        this.currentProfile = profile;
+        this.saveSession(storedProfile);
+        this.currentProfile = storedProfile;
 
-        return profile;
+        return storedProfile;
     }
 
     /**
@@ -371,12 +386,14 @@ export class GunSeaAdapter {
     /**
      * Save user profile to Gun.js user graph
      */
-    private async saveProfile(profile: UserProfile): Promise<void> {
-        return new Promise((resolve, reject) => {
+    private async saveProfile(profile: UserProfile): Promise<UserProfile> {
+        const cleanProfile = sanitizeUserProfile(profile);
+
+        await new Promise<void>((resolve, reject) => {
             this.user
                 .get(APP_NAMESPACE)
                 .get('profile')
-                .put(profile, (ack: { err?: string }) => {
+                .put(cleanProfile, (ack: { err?: string }) => {
                     if (ack.err) {
                         reject(new Error(ack.err));
                     } else {
@@ -384,6 +401,8 @@ export class GunSeaAdapter {
                     }
                 });
         });
+
+        return cleanProfile;
     }
 
     /**
@@ -394,8 +413,8 @@ export class GunSeaAdapter {
             this.user
                 .get(APP_NAMESPACE)
                 .get('profile')
-                .once((data: UserProfile | null) => {
-                    resolve(data);
+                .once((data: RawUserProfile | null) => {
+                    resolve(data ? sanitizeUserProfile(data) : null);
                 });
         });
     }
@@ -409,8 +428,9 @@ export class GunSeaAdapter {
         }
 
         this.currentProfile = { ...this.currentProfile, ...updates };
-        await this.saveProfile(this.currentProfile);
-        this.saveSession(this.currentProfile);
+        const storedProfile = await this.saveProfile(this.currentProfile);
+        this.currentProfile = storedProfile;
+        this.saveSession(storedProfile);
     }
 
     /**
@@ -422,8 +442,9 @@ export class GunSeaAdapter {
         }
 
         this.currentProfile.emailVerified = true;
-        await this.saveProfile(this.currentProfile);
-        this.saveSession(this.currentProfile);
+        const storedProfile = await this.saveProfile(this.currentProfile);
+        this.currentProfile = storedProfile;
+        this.saveSession(storedProfile);
     }
 
     /**
@@ -462,7 +483,8 @@ export class GunSeaAdapter {
      */
     private saveSession(profile: UserProfile): void {
         if (typeof window !== 'undefined') {
-            localStorage.setItem(SESSION_KEY, JSON.stringify(profile));
+            const cleanProfile = sanitizeUserProfile(profile);
+            localStorage.setItem(SESSION_KEY, JSON.stringify(cleanProfile));
         }
     }
 
@@ -483,7 +505,8 @@ export class GunSeaAdapter {
             const saved = localStorage.getItem(SESSION_KEY);
             if (saved) {
                 try {
-                    this.currentProfile = JSON.parse(saved);
+                    const parsed = JSON.parse(saved) as RawUserProfile;
+                    this.currentProfile = sanitizeUserProfile(parsed);
                 } catch {
                     this.clearSession();
                 }

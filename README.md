@@ -175,6 +175,16 @@ If you see CORS errors when uploading:
 - Without the relay, files are stored locally via localStorage backup
 - Start the relay: `cd relay && npm start`
 
+### "Invalid data" login errors
+- Gun.js persists metadata under the `_` key; if it leaks into the profile graph you'll see `Invalid data: Number at ...createdAt` during login
+- Clear `localStorage` for the app domain once to remove the corrupted cache, then reload and sign in again
+- The identity adapter now strips `_` metadata before saving, preventing future corruption
+
+### Stale bundle / chunk load errors
+- If the browser reports `ChunkLoadError: Loading chunk 787 failed`, it usually cached an older Next.js build
+- Hard-refresh (⌘+Shift+R / Ctrl+Shift+R) or clear the service worker cache to pull the latest assets
+- Re-deploying the frontend also invalidates the stale `_next/static` assets
+
 ## License
 
 MIT
