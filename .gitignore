@@ -51,3 +51,4 @@ next-env.d.ts
 *.pem
 *.cert
 secrets.json
+storage/node_modules/
