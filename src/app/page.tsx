@@ -230,6 +230,11 @@ export default function Home() {
         if (isAuthenticated && user && gunUser) {
           console.log('[Upload] Saving to user graph for cross-device sync');
           await db.saveUserFile(metadata, gunUser, user.did);
+          // Link encryption key to owner for access control
+          if (metadata.encrypted) {
+            const keyring = getKeyring();
+            await keyring.linkFileToUser(result.cid, user.did);
+          }
         } else {
           // Not authenticated - save to device-local global graph only
           await db.set('files', result.cid, metadata);
@@ -311,14 +316,14 @@ export default function Home() {
         } else {
           // Private file and we have the key
           try {
-            blob = await storage.downloadAndDecrypt(id);
+            blob = await storage.downloadAndDecrypt(id, user?.did);
           } catch (error) {
             // If it fails, might be password-protected that was mislabeled
             if (error instanceof Error && error.message.includes('password-protected')) {
               const password = window.prompt('Enter password to decrypt this file:');
               if (!password) return;
               try {
-                blob = await storage.downloadWithPassword(id, password);
+                blob = await storage.downloadWithPassword(id, password, user?.did);
               } catch {
                 alert('Incorrect password or decryption failed');
                 return;

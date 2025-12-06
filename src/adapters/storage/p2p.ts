@@ -1,4 +1,6 @@
 import type { Instance } from 'webtorrent';
+import { logger, LogCategory } from '@/shared/utils/logger';
+import { SYNC_CONFIG } from '@/shared/config';
 
 let client: Instance | null = null;
 let WebTorrentModule: typeof import('webtorrent') | null = null;
@@ -16,7 +18,7 @@ async function loadWebTorrent(): Promise<typeof import('webtorrent') | null> {
         WebTorrentModule = (await import('webtorrent')).default;
         return WebTorrentModule;
     } catch (err) {
-        console.error('[WebTorrent] Failed to load:', err);
+        logger.error(LogCategory.P2P, 'Failed to load WebTorrent', err);
         return null;
     }
 }
@@ -51,7 +53,7 @@ export const getP2PClient = async (): Promise<Instance | null> => {
         if (!WebTorrent) return null;
 
         const trackerList = getTrackerList();
-        console.log('[WebTorrent] Using trackers:', trackerList);
+        logger.info(LogCategory.P2P, 'Using trackers', trackerList);
 
         // @ts-ignore
         client = new WebTorrent({
@@ -62,7 +64,7 @@ export const getP2PClient = async (): Promise<Instance | null> => {
         });
 
         client.on('error', (err) => {
-            console.error('[WebTorrent] Client error:', err);
+            logger.error(LogCategory.P2P, 'Client error', err);
         });
     }
 
@@ -79,14 +81,14 @@ export const seedFile = async (file: File): Promise<string> => {
         // Check if already seeding
         const existing = client.torrents.find(t => t.name === file.name);
         if (existing) {
-            console.log('[P2P] Already seeding:', existing.infoHash);
+            logger.debug(LogCategory.P2P, 'Already seeding', existing.infoHash);
             return resolve(existing.magnetURI);
         }
 
         client.seed(file, {
             announce: trackerList
         }, (torrent) => {
-            console.log('[P2P] Seeding:', torrent.infoHash);
+            logger.info(LogCategory.P2P, 'Seeding', torrent.infoHash);
             resolve(torrent.magnetURI);
         });
 
@@ -187,7 +189,7 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
 
         const onDone = async () => {
             cleanup();
-            console.log('[P2P] Download complete:', torrent?.infoHash);
+            logger.info(LogCategory.P2P, 'Download complete', torrent?.infoHash);
             try {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const file = (torrent as any).files[0];
@@ -220,13 +222,14 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             return;
         }
 
-        // Timeout 15s
+        // Timeout using config
         timeoutId = setTimeout(() => {
             cleanup();
             if ((torrent as any).progress < 1) {
                 // We don't destroy the torrent, just stop waiting for it
+                logger.warn(LogCategory.P2P, 'Download timeout', { progress: (torrent as any).progress });
                 reject(new Error('P2P Download timeout'));
             }
-        }, 15000);
+        }, SYNC_CONFIG.p2p.downloadTimeout);
     });
 };

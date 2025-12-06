@@ -237,7 +237,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
      * Download and decrypt a private file
      * Uses the key from local keyring
      */
-    async downloadAndDecrypt(cid: string): Promise<Blob> {
+    async downloadAndDecrypt(cid: string, userDid?: string): Promise<Blob> {
         const { decryptFile, isCryptoSupported } = await import('@/shared/utils/crypto');
 
         if (!isCryptoSupported()) {
@@ -245,7 +245,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         }
 
         const keyring = getKeyring();
-        const keyEntry = await keyring.getKey(cid);
+        const keyEntry = await keyring.getKey(cid, userDid);
 
         if (!keyEntry) {
             throw new Error('No encryption key found for this file. You may not be the owner.');
@@ -292,7 +292,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
     /**
      * Download and decrypt a password-protected file
      */
-    async downloadWithPassword(cid: string, password: string): Promise<Blob> {
+    async downloadWithPassword(cid: string, password: string, userDid?: string): Promise<Blob> {
         const { decryptFileWithPassword, isCryptoSupported } = await import('@/shared/utils/crypto');
 
         if (!isCryptoSupported()) {
@@ -300,7 +300,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         }
 
         const keyring = getKeyring();
-        const keyEntry = await keyring.getKey(cid);
+        const keyEntry = await keyring.getKey(cid, userDid);
 
         if (!keyEntry) {
             throw new Error('No metadata found for this file.');

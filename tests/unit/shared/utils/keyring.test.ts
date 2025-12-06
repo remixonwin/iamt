@@ -69,4 +69,36 @@ describe('LocalKeyring', () => {
         expect(count).toBe(1);
         expect(await keyring.hasKey('imp1')).toBe(true);
     });
+
+    it('should link file to user and enforce owner access', async () => {
+        const fileId = 'owner-test';
+        const ownerId = 'did:key:z123';
+
+        await keyring.storeKey(fileId, 'k', 'i', 'f', 'm');
+        await keyring.linkFileToUser(fileId, ownerId);
+
+        // Owner should access
+        const entry = await keyring.getKey(fileId, ownerId);
+        expect(entry).not.toBeNull();
+        expect(entry?.ownerId).toBe(ownerId);
+
+        // Non-owner should not access
+        const denied = await keyring.getKey(fileId, 'different-user');
+        expect(denied).toBeNull();
+
+        // No user specified should access (backwards compatibility)
+        const noUser = await keyring.getKey(fileId);
+        expect(noUser).not.toBeNull();
+    });
+
+    it('should get keys by owner', async () => {
+        const ownerId = 'did:key:z456';
+        await keyring.storeKey('file1', 'k1', 'i1', 'f1', 'm1');
+        await keyring.storeKey('file2', 'k2', 'i2', 'f2', 'm2');
+        await keyring.linkFileToUser('file1', ownerId);
+
+        const ownerKeys = await keyring.getKeysByOwner(ownerId);
+        expect(ownerKeys).toHaveLength(1);
+        expect(ownerKeys[0].fileId).toBe('file1');
+    });
 });

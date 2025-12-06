@@ -474,6 +474,30 @@ export class GunSeaAdapter {
     }
 
     /**
+     * Clear local user data on sign out (session, backups, but preserve keys for offline access)
+     */
+    clearLocalUserData(): void {
+        if (typeof window === 'undefined') return;
+
+        try {
+            console.info('[GunSEA] Clearing local user data on sign out.');
+
+            // Clear session
+            this.clearSession();
+
+            // Clear Gun local data
+            this.clearLocalGunData();
+
+            // Clear files backup to prevent cross-session access
+            localStorage.removeItem('iamt-files-backup');
+
+            // Note: Keys are preserved for offline access, but access is blocked via owner checks
+        } catch (error) {
+            console.warn('[GunSEA] Error clearing local user data:', error);
+        }
+    }
+
+    /**
      * Get the current authenticated user
      */
     getCurrentUser(): UserProfile | null {

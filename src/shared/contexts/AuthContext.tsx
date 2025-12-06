@@ -240,6 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
             const adapter = getGunSeaAdapter();
             await adapter.signOut();
+            adapter.clearLocalUserData();
             clearKeypair();
             setKeypair(null);
             setGunUser(null);

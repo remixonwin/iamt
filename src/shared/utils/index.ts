@@ -38,3 +38,12 @@ export {
     getKeyring,
     type KeyEntry,
 } from './keyring';
+
+// Logging
+export {
+    logger,
+    LogCategory,
+    type LogLevel,
+    type LogEntry,
+    type LogCategoryType,
+} from './logger';

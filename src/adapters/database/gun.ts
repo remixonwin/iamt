@@ -9,6 +9,9 @@
 
 'use client';
 
+import { logger, LogCategory } from '@/shared/utils/logger';
+import { SYNC_CONFIG } from '@/shared/config';
+
 // Local relay for development
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY;
 
@@ -39,7 +42,7 @@ const RELAYS = Array.from(
             if (!url) return false;
             // Drop insecure endpoints in production (except localhost for dev tunneling)
             if (isProduction && url.startsWith('http://') && !url.includes('localhost')) {
-                console.warn('[Gun.js] Skipping insecure relay in production:', url);
+                logger.warn(LogCategory.GUN, 'Skipping insecure relay in production', url);
                 return false;
             }
             return true;
@@ -127,8 +130,8 @@ export class GunDatabaseAdapter {
 
             const peers = RELAYS.length ? RELAYS : DEFAULT_PUBLIC_RELAYS;
 
-            console.log('[Gun.js] Environment:', isProduction ? 'production' : 'development');
-            console.log('[Gun.js] Connecting to relays:', peers);
+            logger.info(LogCategory.GUN, 'Environment', isProduction ? 'production' : 'development');
+            logger.info(LogCategory.GUN, 'Connecting to relays', peers);
 
             this.gun = Gun({
                 peers,
@@ -140,12 +143,12 @@ export class GunDatabaseAdapter {
                 this.gun.on('error', (err: Error | { message?: string } | null) => {
                     // Only log critical errors, not connection failures
                     if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
-                        console.warn('[Gun.js] Error:', err);
+                        logger.warn(LogCategory.GUN, 'Connection error', err);
                     }
                 });
             }
 
-            console.log('[Gun.js] LocalStorage enabled:', true);
+            logger.debug(LogCategory.GUN, 'LocalStorage enabled', true);
 
             // Verify localStorage is accessible
             try {
@@ -153,12 +156,12 @@ export class GunDatabaseAdapter {
                 localStorage.setItem(testKey, 'test');
                 const retrieved = localStorage.getItem(testKey);
                 localStorage.removeItem(testKey);
-                console.log('[Gun.js] LocalStorage verified:', retrieved === 'test');
+                logger.debug(LogCategory.GUN, 'LocalStorage verified', retrieved === 'test');
             } catch (e) {
-                console.error('[Gun.js] LocalStorage test failed:', e);
+                logger.error(LogCategory.GUN, 'LocalStorage test failed', e);
             }
         } catch (error) {
-            console.error('[Gun.js] Initialization failed:', error);
+            logger.error(LogCategory.GUN, 'Initialization failed', error);
         }
     }
 
@@ -201,20 +204,20 @@ export class GunDatabaseAdapter {
 
         const gun = await this.ensureGun();
         if (!gun) {
-            console.warn('[Gun.js] Gun not initialized - data saved to localStorage backup only');
+            logger.warn(LogCategory.GUN, 'Gun not initialized - data saved to localStorage backup only');
             return;
         }
 
         return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.warn('[Gun.js] Set timeout for key:', key);
+                logger.warn(LogCategory.GUN, 'Set timeout for key', key);
                 resolve();
-            }, 5000);
+            }, SYNC_CONFIG.gun.operationTimeout);
 
             gun.get(APP_NAMESPACE).get(path).get(key).put(value, (ack: { err?: string; ok?: number }) => {
                 clearTimeout(timeout);
                 if (ack.err) {
-                    console.warn('[Gun.js] Set error:', { key, error: ack.err });
+                    logger.warn(LogCategory.GUN, 'Set error', { key, error: ack.err });
                 }
                 resolve();
             });
@@ -230,9 +233,9 @@ export class GunDatabaseAdapter {
             const files: Record<string, GunFileMetadata> = existing ? JSON.parse(existing) : {};
             files[fileId] = metadata;
             localStorage.setItem(LOCALSTORAGE_BACKUP_KEY, JSON.stringify(files));
-            console.log('[Gun.js] Saved to localStorage backup:', fileId);
+            logger.debug(LogCategory.GUN, 'Saved to localStorage backup', fileId);
         } catch (e) {
-            console.error('[Gun.js] Failed to save to localStorage backup:', e);
+            logger.error(LogCategory.GUN, 'Failed to save to localStorage backup', e);
         }
     }
 
@@ -244,11 +247,11 @@ export class GunDatabaseAdapter {
             const stored = localStorage.getItem(LOCALSTORAGE_BACKUP_KEY);
             if (stored) {
                 const files = JSON.parse(stored);
-                console.log('[Gun.js] Loaded from localStorage backup:', Object.keys(files).length, 'files');
+                logger.debug(LogCategory.GUN, 'Loaded from localStorage backup', { count: Object.keys(files).length });
                 return files;
             }
         } catch (e) {
-            console.error('[Gun.js] Failed to load from localStorage backup:', e);
+            logger.error(LogCategory.GUN, 'Failed to load from localStorage backup', e);
         }
         return {};
     }
@@ -263,10 +266,10 @@ export class GunDatabaseAdapter {
                 const files: Record<string, GunFileMetadata> = JSON.parse(existing);
                 delete files[fileId];
                 localStorage.setItem(LOCALSTORAGE_BACKUP_KEY, JSON.stringify(files));
-                console.log('[Gun.js] Deleted from localStorage backup:', fileId);
+                logger.debug(LogCategory.GUN, 'Deleted from localStorage backup', fileId);
             }
         } catch (e) {
-            console.error('[Gun.js] Failed to delete from localStorage backup:', e);
+            logger.error(LogCategory.GUN, 'Failed to delete from localStorage backup', e);
         }
     }
 
@@ -298,15 +301,15 @@ export class GunDatabaseAdapter {
 
                     clearTimeout(debounceTimeout);
                     debounceTimeout = setTimeout(() => {
-                        console.log('[Gun.js] Sync:', Object.keys(data).length, 'files');
+                        logger.debug(LogCategory.GUN, 'Sync', { count: Object.keys(data).length });
                         callback({ ...data });
                     }, 100);
                 } catch (err) {
-                    console.error('[Gun.js] Error processing item:', key, err);
+                    logger.error(LogCategory.GUN, 'Error processing item', { key, err });
                 }
             });
         }).catch(err => {
-            console.error('[Gun.js] Subscribe failed:', err);
+            logger.error(LogCategory.GUN, 'Subscribe failed', err);
         });
 
         return () => {
@@ -321,7 +324,7 @@ export class GunDatabaseAdapter {
 
         return new Promise((resolve) => {
             gun.get(APP_NAMESPACE).get(path).get(key).put(null, () => {
-                console.log('[Gun.js] Deleted:', key);
+                logger.debug(LogCategory.GUN, 'Deleted', key);
                 resolve();
             });
         });
@@ -435,13 +438,17 @@ export class GunDatabaseAdapter {
             // Save to user's 'files' graph
             user.get(APP_NAMESPACE).get('files').get(file.id).put(file, (ack: { err?: string }) => {
                 if (ack.err) {
-                    console.error('[Gun.js] Failed to save to User Graph:', ack.err);
+                    logger.error(LogCategory.GUN, 'Failed to save to User Graph', ack.err);
                     reject(new Error(ack.err));
                 } else {
-                    console.log('[Gun.js] Saved to User Graph:', file.id);
+                    logger.info(LogCategory.GUN, 'Saved to User Graph', file.id);
                     // Also save to global graph for discovery if public, 
                     // or for availability if private (encrypted blob still needs to be found)
-                    this.set('files', file.id, file).then(() => resolve());
+                    if (file.visibility === 'public') {
+                        this.set('files', file.id, file).then(() => resolve());
+                    } else {
+                        resolve();
+                    }
                 }
             });
         });
@@ -466,9 +473,9 @@ export class GunDatabaseAdapter {
 
             // Wait a bit for data to gather
             setTimeout(() => {
-                console.log('[Gun.js] Loaded from User Graph:', Object.keys(files).length, 'files');
+                logger.debug(LogCategory.GUN, 'Loaded from User Graph', { count: Object.keys(files).length });
                 resolve(Object.values(files));
-            }, 1000);
+            }, SYNC_CONFIG.gun.initializationTimeout);
         });
     }
 
@@ -480,7 +487,7 @@ export class GunDatabaseAdapter {
         callback: (data: Record<string, GunFileMetadata>) => void
     ): () => void {
         if (!user || !user.is) {
-            console.warn('[Gun.js] Cannot subscribe to user files - not authenticated');
+            logger.warn(LogCategory.GUN, 'Cannot subscribe to user files - not authenticated');
             return () => { };
         }
 
@@ -502,7 +509,7 @@ export class GunDatabaseAdapter {
 
             clearTimeout(debounceTimeout);
             debounceTimeout = setTimeout(() => {
-                console.log('[Gun.js] User files sync:', Object.keys(data).length, 'files');
+                logger.debug(LogCategory.GUN, 'User files sync', { count: Object.keys(data).length });
                 callback({ ...data });
             }, 100);
         });
@@ -524,9 +531,9 @@ export class GunDatabaseAdapter {
             const files: Record<string, GunFileMetadata> = existing ? JSON.parse(existing) : {};
             files[fileId] = metadata;
             localStorage.setItem(backupKey, JSON.stringify(files));
-            console.log('[Gun.js] Saved to user localStorage backup:', fileId);
+            logger.debug(LogCategory.GUN, 'Saved to user localStorage backup', fileId);
         } catch (e) {
-            console.error('[Gun.js] Failed to save to user localStorage backup:', e);
+            logger.error(LogCategory.GUN, 'Failed to save to user localStorage backup', e);
         }
     }
 
@@ -539,11 +546,11 @@ export class GunDatabaseAdapter {
             const stored = localStorage.getItem(backupKey);
             if (stored) {
                 const files = JSON.parse(stored);
-                console.log('[Gun.js] Loaded from user localStorage backup:', Object.keys(files).length, 'files');
+                logger.debug(LogCategory.GUN, 'Loaded from user localStorage backup', { count: Object.keys(files).length });
                 return files;
             }
         } catch (e) {
-            console.error('[Gun.js] Failed to load from user localStorage backup:', e);
+            logger.error(LogCategory.GUN, 'Failed to load from user localStorage backup', e);
         }
         return {};
     }
@@ -559,10 +566,10 @@ export class GunDatabaseAdapter {
                 const files: Record<string, GunFileMetadata> = JSON.parse(existing);
                 delete files[fileId];
                 localStorage.setItem(backupKey, JSON.stringify(files));
-                console.log('[Gun.js] Deleted from user localStorage backup:', fileId);
+                logger.debug(LogCategory.GUN, 'Deleted from user localStorage backup', fileId);
             }
         } catch (e) {
-            console.error('[Gun.js] Failed to delete from user localStorage backup:', e);
+            logger.error(LogCategory.GUN, 'Failed to delete from user localStorage backup', e);
         }
     }
 }

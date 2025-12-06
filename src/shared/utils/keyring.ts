@@ -189,7 +189,7 @@ export class LocalKeyring {
     /**
      * Retrieve a key entry for a file
      */
-    async getKey(fileId: string): Promise<KeyEntry | null> {
+    async getKey(fileId: string, requestingUserDid?: string): Promise<KeyEntry | null> {
         const db = await this.getDb();
 
         return new Promise((resolve, reject) => {
@@ -199,7 +199,17 @@ export class LocalKeyring {
 
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
-                resolve(request.result || null);
+                const entry = request.result;
+                if (!entry) {
+                    resolve(null);
+                    return;
+                }
+                // Check owner access
+                if (entry.ownerId && requestingUserDid && entry.ownerId !== requestingUserDid) {
+                    resolve(null); // Deny access if owner mismatch
+                } else {
+                    resolve(entry);
+                }
             };
         });
     }
