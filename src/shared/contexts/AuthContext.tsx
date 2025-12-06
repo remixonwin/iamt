@@ -129,10 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
                 // Wait for adapter to initialize and expose a user; retry a few times
                 let user = adapter.getCurrentUser();
-                for (let i = 0; i < 10 && !user; i++) {
-                    await new Promise(r => setTimeout(r, 150));
-                    user = adapter.getCurrentUser();
-                }
+                // Wait for adapter to initialize strictly
+                await adapter.waitForReady();
+                user = adapter.getCurrentUser();
 
                 if (user && adapter.isAuthenticated()) {
                     setState({
@@ -285,7 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const verifyMagicLink = useCallback(async (token: string): Promise<boolean> => {
         try {
             const result = await verifyToken(token);
-            
+
             if (result.success && result.type === 'verification') {
                 // Update local state
                 setState(prev => {

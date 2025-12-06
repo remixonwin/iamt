@@ -28,24 +28,43 @@ function sanitizeUserProfile(profile: RawUserProfile): UserProfile {
 }
 
 // Gun.js relay configuration
-const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
+const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY;
 
-// Gun.js relays for production
-// Vercel serverless doesn't support WebSockets, and public relays are flaky.
-// We prioritize a known public relay, but improved error handling will allow
-// the app to function with just localStorage if relays fail.
-const PUBLIC_RELAYS: string[] = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-eu.herokuapp.com/gun',
-    'https://gun-us.herokuapp.com/gun'
+// Optional comma-separated list from env
+const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+// Default public relays (tested working ones)
+const DEFAULT_PUBLIC_RELAYS: string[] = [
+    'https://relay.peer.ooo/gun', // Working
+    'https://gun-manhattan.herokuapp.com/gun', // Keep as fallback even if down
+    'https://gun-eu.herokuapp.com/gun', // Keep as fallback even if down
+    'https://gun-us.herokuapp.com/gun', // Keep as fallback even if down
 ];
 
 // Determine if running in production
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
 // Always use redundant relays for maximum reliability
-// Prioritize the primary (local/configured) relay, but include public backups
-const RELAYS = [PRIMARY_RELAY, ...PUBLIC_RELAYS];
+const RELAYS = Array.from(
+    new Set(
+        [
+            ...(PRIMARY_RELAY ? [PRIMARY_RELAY] : []),
+            ...ENV_RELAYS,
+            ...DEFAULT_PUBLIC_RELAYS,
+        ].filter((url) => {
+            if (!url) return false;
+            // Drop insecure endpoints in production (except localhost for dev tunneling)
+            if (isProduction && url.startsWith('http://') && !url.includes('localhost')) {
+                console.warn('[GunSEA] Skipping insecure relay in production:', url);
+                return false;
+            }
+            return true;
+        })
+    )
+);
 
 const APP_NAMESPACE = 'iamt-identity-v1';
 
@@ -187,10 +206,26 @@ export class GunSeaAdapter {
     private initialized = false;
     private currentProfile: UserProfile | null = null;
     private hasAttemptedCorruptionRecovery = false;
+    private readyPromise: Promise<void> | null = null;
+    private resolveReady: (() => void) | null = null;
 
     constructor() {
         if (typeof window !== 'undefined') {
+            this.readyPromise = new Promise((resolve) => {
+                this.resolveReady = resolve;
+            });
             this.initGun();
+        } else {
+            this.readyPromise = Promise.resolve();
+        }
+    }
+
+    /**
+     * Wait for adapter to be fully initialized
+     */
+    async waitForReady(): Promise<void> {
+        if (this.readyPromise) {
+            await this.readyPromise;
         }
     }
 
@@ -201,22 +236,40 @@ export class GunSeaAdapter {
         if (this.initialized) return;
         this.initialized = true;
 
-        const Gun = (await import('gun')).default;
-        await import('gun/sea');
+        try {
+            const Gun = (await import('gun')).default;
+            await import('gun/sea');
 
-        console.log('[GunSEA] Connecting to relays:', RELAYS);
-        this.gun = Gun({
-            peers: RELAYS,
-            localStorage: true,
-        });
+            console.log('[GunSEA] Connecting to relays:', RELAYS);
+            this.gun = Gun({
+                peers: RELAYS,
+                localStorage: true,
+            });
 
-        this.user = this.gun.user();
-        this.SEA = (Gun as { SEA?: unknown }).SEA;
+            // Suppress WebSocket connection errors in production
+            if (isProduction) {
+                this.gun.on('error', (err: { message?: string } | Error | null) => {
+                    // Only log critical errors, not connection failures
+                    if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
+                        console.warn('[GunSEA] Error:', err);
+                    }
+                });
+            }
 
-        console.log('[GunSEA] Initialized with relays:', RELAYS);
+            this.user = this.gun.user();
+            this.SEA = (Gun as { SEA?: unknown }).SEA;
 
-        // Try to restore session
-        this.restoreSession();
+            console.log('[GunSEA] Initialized with relays:', RELAYS);
+
+            // Try to restore session
+            this.restoreSession();
+        } catch (e) {
+            console.error('[GunSEA] Failed to init', e);
+        } finally {
+            if (this.resolveReady) {
+                this.resolveReady();
+            }
+        }
     }
 
     /**

@@ -18,11 +18,12 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
     .map((url) => url.trim())
     .filter(Boolean);
 
-// Default public relays (non-Heroku, still online)
+// Default public relays (tested working ones)
 const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'https://relay.peer.ooo/gun',
-    'https://relay.gun.eco/gun',
-    'https://relay-us.gundb.io/gun'
+    'https://relay.peer.ooo/gun', // Working
+    'https://gun-manhattan.herokuapp.com/gun', // Keep as fallback even if down
+    'https://gun-eu.herokuapp.com/gun', // Keep as fallback even if down
+    'https://gun-us.herokuapp.com/gun', // Keep as fallback even if down
 ];
 
 // Determine if running in production (not localhost)
@@ -134,6 +135,16 @@ export class GunDatabaseAdapter {
                 peers,
                 localStorage: true,
             });
+
+            // Suppress WebSocket connection errors in production
+            if (isProduction) {
+                this.gun.on('error', (err) => {
+                    // Only log critical errors, not connection failures
+                    if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
+                        console.warn('[Gun.js] Error:', err);
+                    }
+                });
+            }
 
             console.log('[Gun.js] LocalStorage enabled:', true);
 
