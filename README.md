@@ -64,6 +64,12 @@ npm run dev
 - **Local**: http://localhost:3000
 - **Any device**: https://iamt-relay.loca.lt (with tunnels running)
 
+## 🌍 Public file sharing behavior
+
+- When uploading, choose **Public** in the File Privacy controls.
+- Public image uploads are written to the shared Gun `files` graph and are auto-synced to every connected client.
+- On the home page, the **Public Images** tab shows this global feed; the **My Files** tab shows only files owned by the current user/device.
+
 ## 📦 Architecture
 
 \`\`\`
