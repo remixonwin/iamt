@@ -9,8 +9,11 @@
 // Use environment variable or fallback to localhost
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
-// Fallback relays (updated - Heroku relays deprecated)
-const FALLBACK_RELAYS: string[] = [];
+// Fallback public relays for production
+const FALLBACK_RELAYS: string[] = [
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-us.herokuapp.com/gun',
+];
 
 // All relays - primary first, then fallbacks
 // In production without custom relay, use public relays only
@@ -50,7 +53,7 @@ export interface GunFileMetadata {
     originalType?: string;
     /** File hash for integrity verification */
     fileHash?: string;
-    
+
     // Ownership fields
     /** Owner user ID (DID or public key) */
     ownerId?: string;
@@ -233,13 +236,13 @@ export class GunDatabaseAdapter {
     async getFiles(ownerId?: string): Promise<GunFileMetadata[]> {
         const data = await this.get<GunFileMetadata>('files');
         if (!data) return [];
-        
+
         const files = Object.values(data);
-        
+
         if (ownerId) {
             return files.filter(f => f.ownerId === ownerId);
         }
-        
+
         return files;
     }
 
@@ -289,12 +292,12 @@ export class GunDatabaseAdapter {
     async isFileOwner(fileId: string, ownerId: string): Promise<boolean> {
         const file = await this.getFile(fileId);
         if (!file) return false;
-        
+
         // If no owner set, check device ID for backward compatibility
         if (!file.ownerId) {
             return file.deviceId === this.deviceId;
         }
-        
+
         return file.ownerId === ownerId;
     }
 }
