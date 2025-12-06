@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { FileUploader, FilePreview, FileGrid, FileViewer, type UploadedFile, type FileVisibility } from '@/shared/components';
+import { FileUploader, FilePreview, FileGrid, FileViewer, type UploadedFile, type FileVisibility, NavigationHeader } from '@/shared/components';
 import { WebTorrentStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
 import { getKeyring } from '@/shared/utils/keyring';
-import { useAuth } from '@/shared/contexts/AuthContext';
 
 // P2P Storage server - Use env var or default to public tunnel, fallback to localhost for dev/test
 const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'http://localhost:3001';
@@ -30,7 +29,6 @@ interface StoredFile {
 }
 
 export default function Home() {
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [uploadQueue, setUploadQueue] = useState<UploadedFile[]>([]);
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
@@ -304,41 +302,7 @@ export default function Home() {
   return (
     <main className="gradient-bg min-h-screen">
       {/* Navigation Header */}
-      <nav className="max-w-5xl mx-auto px-6 py-4 flex justify-between items-center">
-        <Link href="/" className="text-xl font-bold gradient-text">
-          IAMT
-        </Link>
-        <div className="flex items-center gap-4">
-          {authLoading ? (
-            <div className="w-8 h-8 rounded-full bg-[var(--surface)] animate-pulse" />
-          ) : isAuthenticated && user ? (
-            <Link
-              href="/profile"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--surface)] hover:bg-[var(--surface-hover)] transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-sm font-medium">
-                {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || '?'}
-              </div>
-              <span className="text-sm font-medium text-white hidden sm:inline">Profile</span>
-            </Link>
-          ) : (
-            <>
-              <Link
-                href="/auth/login"
-                className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors"
-              >
-                Login
-              </Link>
-              <Link
-                href="/auth/signup"
-                className="px-4 py-2 rounded-xl bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors"
-              >
-                Sign Up
-              </Link>
-            </>
-          )}
-        </div>
-      </nav>
+      <NavigationHeader />
 
       <div className="max-w-5xl mx-auto px-6 py-12">
         <div className="text-center mb-12">

@@ -302,3 +302,215 @@ export function arrayBufferToHex(buffer: ArrayBuffer): string {
 export function uint8ArrayToBase64(bytes: Uint8Array): string {
     return arrayBufferToBase64(bytes.buffer);
 }
+
+// ============ Web Worker Support ============
+
+let cryptoWorker: Worker | null = null;
+let workerMessageId = 0;
+const pendingWorkerRequests = new Map<string, {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+}>();
+
+/**
+ * Get or create the crypto worker instance
+ */
+function getCryptoWorker(): Worker | null {
+    if (typeof window === 'undefined') return null;
+    if (typeof Worker === 'undefined') return null;
+
+    if (!cryptoWorker) {
+        try {
+            // Create worker from blob to avoid bundler issues
+            cryptoWorker = new Worker(
+                new URL('./crypto.worker.ts', import.meta.url),
+                { type: 'module' }
+            );
+
+            cryptoWorker.onmessage = (event) => {
+                const { id, success, result, error } = event.data;
+                const pending = pendingWorkerRequests.get(id);
+                if (pending) {
+                    pendingWorkerRequests.delete(id);
+                    if (success) {
+                        pending.resolve(result);
+                    } else {
+                        pending.reject(new Error(error));
+                    }
+                }
+            };
+
+            cryptoWorker.onerror = (error) => {
+                console.error('[CryptoWorker] Error:', error);
+            };
+        } catch (err) {
+            console.warn('[CryptoWorker] Failed to create worker:', err);
+            return null;
+        }
+    }
+
+    return cryptoWorker;
+}
+
+/**
+ * Send a message to the crypto worker and wait for response
+ */
+function workerRequest<T>(type: string, payload: unknown, transfer: Transferable[] = []): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const worker = getCryptoWorker();
+        if (!worker) {
+            reject(new Error('Web Worker not available'));
+            return;
+        }
+
+        const id = `msg_${++workerMessageId}`;
+        pendingWorkerRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+
+        worker.postMessage({ id, type, payload }, transfer);
+    });
+}
+
+/**
+ * Check if Web Worker crypto is available
+ */
+export function isWorkerCryptoAvailable(): boolean {
+    return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+}
+
+/**
+ * Encrypt a file using a Web Worker (non-blocking)
+ * Falls back to main thread if worker unavailable
+ */
+export async function encryptFileAsync(file: File): Promise<EncryptionResult> {
+    const worker = getCryptoWorker();
+
+    if (!worker) {
+        // Fallback to main thread
+        return encryptFile(file);
+    }
+
+    const fileData = await file.arrayBuffer();
+
+    const result = await workerRequest<{
+        encryptedData: ArrayBuffer;
+        exportedKey: string;
+        iv: string;
+    }>('encrypt', { fileData }, [fileData]);
+
+    const encryptedBlob = new Blob([result.encryptedData], {
+        type: 'application/octet-stream'
+    });
+
+    // Create a non-extractable key for the result (worker already exported it)
+    const key = await importKey(result.exportedKey);
+
+    return {
+        encryptedBlob,
+        key: key as CryptoKey, // Cast since we need extractable for type, but it's stored via exportedKey
+        iv: base64ToArrayBuffer(result.iv),
+        exportedKey: result.exportedKey,
+    };
+}
+
+/**
+ * Encrypt a file with password using a Web Worker (non-blocking)
+ */
+export async function encryptFileWithPasswordAsync(
+    file: File,
+    password: string
+): Promise<PasswordEncryptionResult> {
+    const worker = getCryptoWorker();
+
+    if (!worker) {
+        return encryptFileWithPassword(file, password);
+    }
+
+    const fileData = await file.arrayBuffer();
+
+    const result = await workerRequest<{
+        encryptedData: ArrayBuffer;
+        salt: string;
+        iv: string;
+    }>('encryptWithPassword', { fileData, password }, [fileData]);
+
+    const encryptedBlob = new Blob([result.encryptedData], {
+        type: 'application/octet-stream'
+    });
+
+    return {
+        encryptedBlob,
+        salt: result.salt,
+        iv: result.iv,
+    };
+}
+
+/**
+ * Decrypt a file using a Web Worker (non-blocking)
+ */
+export async function decryptFileAsync(
+    params: DecryptionParams,
+    originalType?: string
+): Promise<Blob> {
+    const worker = getCryptoWorker();
+
+    if (!worker) {
+        return decryptFile(params, originalType);
+    }
+
+    const encryptedData = await params.encryptedBlob.arrayBuffer();
+
+    const result = await workerRequest<{
+        decryptedData: ArrayBuffer;
+    }>('decrypt', {
+        encryptedData,
+        exportedKey: params.exportedKey,
+        iv: params.iv,
+    }, [encryptedData]);
+
+    return new Blob([result.decryptedData], {
+        type: originalType || 'application/octet-stream'
+    });
+}
+
+/**
+ * Decrypt a file with password using a Web Worker (non-blocking)
+ */
+export async function decryptFileWithPasswordAsync(
+    encryptedBlob: Blob,
+    password: string,
+    salt: string,
+    iv: string,
+    originalType?: string
+): Promise<Blob> {
+    const worker = getCryptoWorker();
+
+    if (!worker) {
+        return decryptFileWithPassword(encryptedBlob, password, salt, iv, originalType);
+    }
+
+    const encryptedData = await encryptedBlob.arrayBuffer();
+
+    const result = await workerRequest<{
+        decryptedData: ArrayBuffer;
+    }>('decryptWithPassword', {
+        encryptedData,
+        password,
+        salt,
+        iv,
+    }, [encryptedData]);
+
+    return new Blob([result.decryptedData], {
+        type: originalType || 'application/octet-stream'
+    });
+}
+
+/**
+ * Terminate the crypto worker (for cleanup)
+ */
+export function terminateCryptoWorker(): void {
+    if (cryptoWorker) {
+        cryptoWorker.terminate();
+        cryptoWorker = null;
+        pendingWorkerRequests.clear();
+    }
+}

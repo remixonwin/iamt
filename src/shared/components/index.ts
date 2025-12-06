@@ -5,4 +5,5 @@ export { FileViewer } from './FileViewer';
 export { ProfileCard } from './ProfileCard';
 export { IdentityBadge } from './IdentityBadge';
 export { RecoverySettings } from './RecoverySettings';
+export * from './NavigationHeader';
 export { AuthForm } from './AuthForm';

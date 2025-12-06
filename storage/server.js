@@ -7,6 +7,7 @@
  * - File size limits
  * - Helmet for security headers
  * - Content-addressable storage (InfoHash-based deduplication)
+ * - MinIO S3-compatible object storage for durability
  * 
  * Run with: npm start
  */
@@ -20,6 +21,7 @@ import WebTorrent from 'webtorrent';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import * as Minio from 'minio';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,13 +32,136 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
     : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:8765'];
 
+// MinIO configuration
+const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || 'localhost';
+const MINIO_PORT = parseInt(process.env.MINIO_PORT || '9000');
+const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'iamtadmin';
+const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'iamtpassword123';
+const MINIO_BUCKET = process.env.MINIO_BUCKET || 'iamt-files';
+const MINIO_USE_SSL = process.env.MINIO_USE_SSL === 'true';
+
+// Self-hosted tracker URL (optional)
+const TRACKER_URL = process.env.TRACKER_URL;
+
+// Initialize MinIO client
+let minioClient = null;
+let minioReady = false;
+
+async function initMinIO() {
+    try {
+        minioClient = new Minio.Client({
+            endPoint: MINIO_ENDPOINT,
+            port: MINIO_PORT,
+            useSSL: MINIO_USE_SSL,
+            accessKey: MINIO_ACCESS_KEY,
+            secretKey: MINIO_SECRET_KEY,
+        });
+
+        // Check if bucket exists, create if not
+        const exists = await minioClient.bucketExists(MINIO_BUCKET);
+        if (!exists) {
+            await minioClient.makeBucket(MINIO_BUCKET);
+            console.log(`[MinIO] Created bucket: ${MINIO_BUCKET}`);
+        }
+        minioReady = true;
+        console.log(`[MinIO] Connected to ${MINIO_ENDPOINT}:${MINIO_PORT}`);
+    } catch (err) {
+        console.warn('[MinIO] Not available, using local filesystem only:', err.message);
+        minioReady = false;
+    }
+}
+
+// Initialize MinIO on startup
+initMinIO();
+
+// Kubo (IPFS) configuration
+const KUBO_API = process.env.KUBO_API || 'http://localhost:5001';
+const KUBO_GATEWAY = process.env.KUBO_GATEWAY || 'http://localhost:8080';
+let kuboReady = false;
+
+async function initKubo() {
+    try {
+        const response = await fetch(`${KUBO_API}/api/v0/id`, { method: 'POST' });
+        if (response.ok) {
+            const data = await response.json();
+            kuboReady = true;
+            console.log(`[Kubo] Connected to IPFS node: ${data.ID.substring(0, 16)}...`);
+        }
+    } catch (err) {
+        console.warn('[Kubo] IPFS not available:', err.message);
+        kuboReady = false;
+    }
+}
+
+// Initialize Kubo on startup
+initKubo();
+
+// Helper to upload file to IPFS
+async function uploadToIPFS(filePath, fileName) {
+    if (!kuboReady) return null;
+    
+    try {
+        const formData = new FormData();
+        const fileBuffer = fs.readFileSync(filePath);
+        const blob = new Blob([fileBuffer]);
+        formData.append('file', blob, fileName);
+        
+        const response = await fetch(`${KUBO_API}/api/v0/add?pin=true&cid-version=1`, {
+            method: 'POST',
+            body: formData,
+        });
+        
+        if (response.ok) {
+            const text = await response.text();
+            const lines = text.trim().split('\n');
+            const result = JSON.parse(lines[lines.length - 1]);
+            return result.Hash;
+        }
+    } catch (err) {
+        console.warn(`[Kubo] Upload failed: ${err.message}`);
+    }
+    return null;
+}
+
+// Helper to download file from IPFS
+async function downloadFromIPFS(cid) {
+    if (!kuboReady) return null;
+    
+    try {
+        const response = await fetch(`${KUBO_GATEWAY}/ipfs/${cid}`);
+        if (response.ok) {
+            return response;
+        }
+    } catch (err) {
+        console.warn(`[Kubo] Download failed: ${err.message}`);
+    }
+    return null;
+}
+
 // Ensure files directory exists
 if (!fs.existsSync(FILES_DIR)) {
     fs.mkdirSync(FILES_DIR, { recursive: true });
 }
 
-// Initialize WebTorrent client
-const client = new WebTorrent();
+// Build tracker list with self-hosted tracker if available
+const trackerList = [
+    'wss://tracker.openwebtorrent.com',
+    'wss://tracker.btorrent.xyz',
+    'wss://tracker.webtorrent.dev',
+    'wss://tracker.files.fm:7073/announce',
+];
+if (TRACKER_URL) {
+    trackerList.unshift(TRACKER_URL); // Prioritize self-hosted tracker
+    console.log(`[Tracker] Using self-hosted tracker: ${TRACKER_URL}`);
+}
+
+// Initialize WebTorrent client with DHT and multiple trackers
+const client = new WebTorrent({
+    dht: true, // Enable DHT for tracker-less peer discovery
+    tracker: {
+        announce: trackerList
+    }
+});
 
 // Content-addressable storage: Map InfoHash -> Torrent
 // This allows multiple files with identical content to share the same torrent
@@ -128,13 +253,57 @@ const upload = multer({
     }
 });
 
-// Health check
+// Health check with detailed P2P metrics
 app.get('/', (req, res) => {
+    const torrentList = Array.from(torrents.values());
+    const totalPeers = torrentList.reduce((sum, t) => sum + t.numPeers, 0);
+    const totalSeeds = torrentList.filter(t => t.progress === 1).length;
+    const totalSize = torrentList.reduce((sum, t) => sum + (t.length || 0), 0);
+    
     res.json({
         status: 'ok',
         name: 'IAMT WebTorrent Storage',
+        version: '2.0.0',
         files: torrents.size,
-        peersTotal: Array.from(torrents.values()).reduce((sum, t) => sum + t.numPeers, 0),
+        peersTotal: totalPeers,
+        seedingCount: totalSeeds,
+        totalStorageBytes: totalSize,
+        dhtEnabled: true,
+        trackers: trackerList.length,
+        minioEnabled: minioReady,
+        uptime: process.uptime(),
+    });
+});
+
+// Detailed health endpoint for monitoring
+app.get('/health', (req, res) => {
+    const torrentList = Array.from(torrents.values());
+    res.json({
+        status: 'healthy',
+        storage: {
+            files: torrents.size,
+            totalBytes: torrentList.reduce((sum, t) => sum + (t.length || 0), 0),
+        },
+        p2p: {
+            dht: true,
+            trackers: trackerList,
+            totalPeers: torrentList.reduce((sum, t) => sum + t.numPeers, 0),
+            activeTorrents: torrentList.map(t => ({
+                hash: t.infoHash,
+                name: t.name,
+                peers: t.numPeers,
+                progress: t.progress,
+                uploaded: t.uploaded,
+                downloaded: t.downloaded,
+            })),
+        },
+        minio: {
+            enabled: minioReady,
+            endpoint: minioReady ? `${MINIO_ENDPOINT}:${MINIO_PORT}` : null,
+            bucket: minioReady ? MINIO_BUCKET : null,
+        },
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
     });
 });
 
@@ -169,6 +338,8 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
                 announce: [
                     'wss://tracker.openwebtorrent.com',
                     'wss://tracker.btorrent.xyz',
+                    'wss://tracker.webtorrent.dev',
+                    'wss://tracker.files.fm:7073/announce',
                 ],
             }, (torrent) => {
                 clearTimeout(timeout);
@@ -192,6 +363,18 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
 
         // Store disk path on torrent object for compatibility
         torrent.diskPath = newPath;
+
+        // Backup to MinIO for durability (async, don't block response)
+        if (minioReady && minioClient) {
+            const objectName = `${torrent.infoHash}/${fileName}`;
+            minioClient.fPutObject(MINIO_BUCKET, objectName, newPath)
+                .then(() => {
+                    console.log(`[MinIO] Backed up: ${objectName}`);
+                })
+                .catch(err => {
+                    console.warn(`[MinIO] Backup failed: ${err.message}`);
+                });
+        }
 
         console.log(`[Magnet] ${torrent.magnetURI.substring(0, 60)}...`);
 
@@ -280,6 +463,54 @@ app.get('/download/:hash', (req, res) => {
             });
             stream.pipe(res);
             return;
+        }
+    }
+
+    // Try MinIO fallback if local file not found
+    if (minioReady && minioClient) {
+        console.log(`[Download] Trying MinIO fallback for: ${req.params.hash}`);
+        try {
+            // List objects with the hash prefix to find the file
+            const objectsStream = minioClient.listObjects(MINIO_BUCKET, `${req.params.hash}/`, false);
+            let objectName = null;
+            
+            objectsStream.on('data', (obj) => {
+                if (!objectName && obj.name) {
+                    objectName = obj.name;
+                }
+            });
+            
+            objectsStream.on('end', async () => {
+                if (objectName) {
+                    try {
+                        const fileName = objectName.split('/').pop() || 'download';
+                        console.log(`[Download] Found in MinIO: ${objectName}`);
+                        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                        const stream = await minioClient.getObject(MINIO_BUCKET, objectName);
+                        stream.pipe(res);
+                    } catch (err) {
+                        console.error('[MinIO Download Error]', err);
+                        if (!res.headersSent) {
+                            res.status(404).json({ error: 'Not found' });
+                        }
+                    }
+                } else {
+                    console.log(`[Download] Hash not found in MinIO: ${req.params.hash}`);
+                    if (!res.headersSent) {
+                        res.status(404).json({ error: 'Not found' });
+                    }
+                }
+            });
+            
+            objectsStream.on('error', (err) => {
+                console.error('[MinIO List Error]', err);
+                if (!res.headersSent) {
+                    res.status(404).json({ error: 'Not found' });
+                }
+            });
+            return;
+        } catch (err) {
+            console.error('[MinIO Fallback Error]', err);
         }
     }
 

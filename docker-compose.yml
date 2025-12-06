@@ -10,6 +10,10 @@ services:
     environment:
       - PORT=3000
       - HOSTNAME=0.0.0.0
+    depends_on:
+      - storage
+      - relay
+      - tracker
     restart: always
 
   relay:
@@ -22,6 +26,52 @@ services:
       - relay_data:/app/data
     restart: always
 
+  # Self-hosted BitTorrent tracker for reliable P2P discovery
+  tracker:
+    image: node:20-alpine
+    command: npx bittorrent-tracker --ws --port 8000
+    ports:
+      - "8000:8000"
+    restart: always
+
+  # MinIO for durable S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=iamtadmin
+      - MINIO_ROOT_PASSWORD=iamtpassword123
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  # Kubo (go-ipfs) for decentralized IPFS storage
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "4001:4001"      # P2P swarm
+      - "4001:4001/udp"  # P2P swarm UDP
+      - "5001:5001"      # API
+      - "8080:8080"      # Gateway
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ipfs_data:/data/ipfs
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs dag stat /ipfs/QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
   storage:
     build:
       context: ./storage
@@ -30,8 +80,23 @@ services:
       - "3001:3001"
     volumes:
       - storage_files:/app/files
+    environment:
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=iamtadmin
+      - MINIO_SECRET_KEY=iamtpassword123
+      - MINIO_BUCKET=iamt-files
+      - TRACKER_URL=ws://tracker:8000
+      - KUBO_API=http://ipfs:5001
+      - KUBO_GATEWAY=http://ipfs:8080
+    depends_on:
+      - minio
+      - tracker
+      - ipfs
     restart: always
 
 volumes:
   relay_data:
   storage_files:
+  minio_data:
+  ipfs_data:

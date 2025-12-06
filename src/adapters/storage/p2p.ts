@@ -30,10 +30,13 @@ export const getP2PClient = async (): Promise<Instance | null> => {
 
         // @ts-ignore
         client = new WebTorrent({
+            dht: true, // Enable DHT for tracker-less peer discovery
             tracker: {
                 announce: [
                     'wss://tracker.openwebtorrent.com',
                     'wss://tracker.btorrent.xyz',
+                    'wss://tracker.webtorrent.dev',
+                    'wss://tracker.files.fm:7073/announce',
                 ]
             }
         });
@@ -62,6 +65,8 @@ export const seedFile = async (file: File): Promise<string> => {
             announce: [
                 'wss://tracker.openwebtorrent.com',
                 'wss://tracker.btorrent.xyz',
+                'wss://tracker.webtorrent.dev',
+                'wss://tracker.files.fm:7073/announce',
             ]
         }, (torrent) => {
             console.log('[P2P] Seeding:', torrent.infoHash);

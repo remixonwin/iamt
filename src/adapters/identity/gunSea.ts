@@ -15,12 +15,12 @@ import type { UserProfile, UserKeypair, SignupRequest, LoginRequest, RecoveryReq
 // Gun.js relay configuration
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
-// Working public Gun.js relays for production
-// Note: Vercel serverless functions don't support WebSockets, so we must use external relays
-// These are the more reliable relays confirmed working 2024-2025
+// Gun.js relays for production
+// Our custom relay is primary, with public relays as fallback
 const PUBLIC_RELAYS: string[] = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-matrix.herokuapp.com/gun',
+    'https://relay-remixonwins-projects.vercel.app/gun',  // Our custom relay
+    'https://gun-manhattan.herokuapp.com/gun',            // Fallback 1
+    'https://gun-matrix.herokuapp.com/gun',               // Fallback 2
 ];
 
 // Determine if running in production
