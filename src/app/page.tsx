@@ -6,6 +6,7 @@ import { FileUploader, FilePreview, FileGrid, FileViewer, type UploadedFile, typ
 import { WebTorrentStorageAdapter, GunDatabaseAdapter, type GunFileMetadata } from '@/adapters';
 import { formatFileSize, getFileTypeInfo } from '@/shared/utils';
 import { getKeyring } from '@/shared/utils/keyring';
+import { useAuth } from '@/shared/contexts/AuthContext';
 
 // P2P Storage server - Use env var or default to public tunnel, fallback to localhost for dev/test
 const STORAGE_API = process.env.NEXT_PUBLIC_STORAGE_API || 'http://localhost:3001';
@@ -29,6 +30,7 @@ interface StoredFile {
 }
 
 export default function Home() {
+  const { user, isAuthenticated } = useAuth();
   const [uploadQueue, setUploadQueue] = useState<UploadedFile[]>([]);
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
@@ -47,6 +49,10 @@ export default function Home() {
 
         // Load from localStorage backup IMMEDIATELY (works even without relay)
         const backupFiles = db.loadFromLocalBackup();
+
+        let initialFiles: StoredFile[] = [];
+
+        // 1. Load Local Backup
         if (Object.keys(backupFiles).length > 0) {
           console.log('[Page] Loading files from localStorage backup:', Object.keys(backupFiles).length);
           const filesFromBackup: StoredFile[] = await Promise.all(
@@ -65,8 +71,23 @@ export default function Home() {
                 canDecrypt: meta.encrypted ? await keyring.hasKey(meta.id) : true,
               }))
           );
+          initialFiles = filesFromBackup;
           setStoredFiles(filesFromBackup);
           setIsLoading(false);
+        }
+
+        // 2. Load User Graph (if authenticated) - Merges with backup
+        if (isAuthenticated && user) {
+          // Access underlying Gun user instance via adapter if needed, 
+          // but here we assume the DB adapter can handle it if we pass the user object (?)
+          // Actually, db.getUserFiles expects the raw gun user object.
+          // We need to access it from AuthContext or GunSeaAdapter? 
+          // Best to use the adapter's methods if possible or update AuthContext to expose gun user.
+          // For now, let's skip direct Gun User Graph read here and rely on sync updates 
+          // OR implemented getUserFiles in GunDatabaseAdapter BUT we need the user reference.
+
+          // WORKAROUND: We will trigger a specific load based on ownership
+          // Ideally we should update GunDatabaseAdapter to accept the profile/user context.
         }
 
         // Subscribe to Gun.js for sync (merges with localStorage data)
@@ -79,6 +100,9 @@ export default function Home() {
           const files: StoredFile[] = await Promise.all(
             Object.values(mergedFiles)
               .filter((meta) => meta && meta.id)
+              // Filter by ownership if we want strict privacy, 
+              // BUT for P2P we often want to see everything public.
+              // "My Files" tab should filter by owner. Main grid shows all?
               .map(async (meta) => {
                 // Check if we can decrypt this file
                 const canDecrypt = meta.encrypted ? await keyring.hasKey(meta.id) : true;
@@ -116,12 +140,12 @@ export default function Home() {
     }
 
     init();
-  }, []);
+  }, [isAuthenticated, user]);
 
   const handleFilesSelected = useCallback((files: UploadedFile[]) => {
     setUploadQueue((prev) => [...prev, ...files]);
     files.forEach((uploadedFile) => uploadFile(uploadedFile));
-  }, []);
+  }, [isAuthenticated, user]); // Add dependencies
 
   const uploadFile = async (uploadedFile: UploadedFile) => {
     const { id, file, visibility, password } = uploadedFile;
@@ -167,6 +191,7 @@ export default function Home() {
         visibility: result.visibility,
         encrypted: result.visibility !== 'public',
         originalType: file.type,
+        ownerId: user?.did // Add owner ID if authenticated
       };
 
       // Only add encryption metadata if present (Gun.js rejects undefined values)
@@ -178,7 +203,19 @@ export default function Home() {
       }
 
       if (db) {
-        await db.set('files', result.cid, metadata);
+        // If authenticated, also save to User Graph for cross-device sync
+        if (isAuthenticated && user) {
+          // We need access to the Gun SEA user instance. 
+          // In a real implementation we would pass the Gun user object to `db.saveUserFile`
+          // For now, we are saving to the global graph with `ownerId` which works for 
+          // public/discovery, but true private sync needs `user().get('files')`.
+          // The GunDatabaseAdapter needs a way to access the signed-in user instance.
+
+          // Temporary: Save to global graph (classic logic) which now includes ownerId
+          await db.set('files', result.cid, metadata);
+        } else {
+          await db.set('files', result.cid, metadata);
+        }
       } else {
         console.warn('[Upload] Database not initialized - file metadata may not persist across sessions');
       }

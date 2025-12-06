@@ -24,7 +24,7 @@ function sanitizeUserProfile(profile: RawUserProfile): UserProfile {
         }
     }
 
-    return sanitized as UserProfile;
+    return sanitized as unknown as UserProfile;
 }
 
 // Gun.js relay configuration
@@ -36,7 +36,8 @@ const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:876
 // the app to function with just localStorage if relays fail.
 const PUBLIC_RELAYS: string[] = [
     'https://gun-manhattan.herokuapp.com/gun',
-    // 'https://relay-remixonwins-projects.vercel.app/gun', // Disabled: Vercel doesn't support WSS, causes console spam
+    'https://gun-eu.herokuapp.com/gun',
+    'https://gun-us.herokuapp.com/gun'
 ];
 
 // Determine if running in production
@@ -186,6 +187,7 @@ export class GunSeaAdapter {
     private SEA: any = null;
     private initialized = false;
     private currentProfile: UserProfile | null = null;
+    private hasAttemptedCorruptionRecovery = false;
 
     constructor() {
         if (typeof window !== 'undefined') {
@@ -297,14 +299,12 @@ export class GunSeaAdapter {
     /**
      * Internal authentication helper
      */
-    private authenticateInternal(email: string, password: string): Promise<void> {
-        return new Promise((resolve, reject) => {
+    private async authenticateInternal(email: string, password: string): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
             this.user.auth(email, password, (ack: { err?: string }) => {
                 if (ack.err) {
-                    // Check for common Gun.js data corruption error
                     if (ack.err.includes('Invalid data') || ack.err.includes('Number at')) {
-                        console.error('[GunSEA] Data corruption detected. Clearing local session recommended.');
-                        reject(new Error('Local data corrupted. Please clear your browser cache/cookies for this site and try again.'));
+                        this.handleCorruptedDataError(email, password).then(resolve).catch(reject);
                     } else {
                         reject(new Error(ack.err));
                     }
@@ -313,6 +313,59 @@ export class GunSeaAdapter {
                 }
             });
         });
+    }
+
+    private async handleCorruptedDataError(email: string, password: string): Promise<void> {
+        console.error('[GunSEA] Data corruption detected during auth. Attempting automatic recovery.');
+
+        if (this.hasAttemptedCorruptionRecovery) {
+            throw new Error('Local identity data appears corrupted. Please clear your browser storage for this site and try again.');
+        }
+
+        this.hasAttemptedCorruptionRecovery = true;
+        this.clearLocalGunData();
+
+        await new Promise<void>((resolve, reject) => {
+            this.user.auth(email, password, (ack: { err?: string }) => {
+                if (ack.err) {
+                    console.error('[GunSEA] Auth failed after corruption cleanup:', ack.err);
+                    reject(new Error('We had to reset your local identity data. Please sign in again.'));
+                } else {
+                    console.info('[GunSEA] Auth succeeded after automatic corruption cleanup.');
+                    resolve();
+                }
+            });
+        });
+    }
+
+    private clearLocalGunData(): void {
+        if (typeof window === 'undefined') return;
+
+        try {
+            console.warn('[GunSEA] Clearing local Gun identity data for recovery.');
+
+            this.clearSession();
+
+            try {
+                if (this.gun && this.gun._ && this.gun._.opt && this.gun._.opt.file) {
+                    const fileKey = this.gun._.opt.file as string;
+                    localStorage.removeItem(fileKey);
+                }
+            } catch {
+                // Best-effort; ignore if structure not as expected
+            }
+
+            try {
+                const gunKeys = Object.keys(localStorage).filter(key => key.toLowerCase().includes('gun'));
+                for (const key of gunKeys) {
+                    localStorage.removeItem(key);
+                }
+            } catch {
+                // Ignore
+            }
+        } catch {
+            // Ignore errors while attempting cleanup; user can still manually clear storage
+        }
     }
 
     /**

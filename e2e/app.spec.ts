@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Homepage', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
-        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 20000 });
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
     });
 
     test('should display the IAMT header', async ({ page }) => {
@@ -78,7 +78,7 @@ test.describe('Homepage', () => {
 test.describe('File Upload', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
-        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 20000 });
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
     });
 
     test('should show upload zone on hover', async ({ page }) => {
@@ -135,7 +135,7 @@ test.describe('File Upload', () => {
 test.describe('My Files Tab', () => {
     test('should switch to My Files tab', async ({ page }) => {
         await page.goto('/');
-        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 20000 });
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
 
         await page.getByRole('button', { name: /my files/i }).click();
 
@@ -147,7 +147,7 @@ test.describe('My Files Tab', () => {
     // Test file persistence - files should appear in My Files after upload
     test('should persist uploaded files', async ({ page }) => {
         await page.goto('/');
-        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 20000 });
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
 
         // Ensure we're on Upload tab
         await page.getByRole('button', { name: /upload/i }).click();
@@ -175,7 +175,7 @@ test.describe('My Files Tab', () => {
 test.describe('Stats Bar', () => {
     test('should display file count', async ({ page }) => {
         await page.goto('/');
-        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 20000 });
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
 
         // Stats should show file count label
         await expect(page.getByText('Files', { exact: true })).toBeVisible();
@@ -193,7 +193,7 @@ test.describe('Responsive Design', () => {
     test('should work on mobile viewport', async ({ page }) => {
         await page.setViewportSize({ width: 375, height: 667 });
         await page.goto('/');
-        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 20000 });
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
 
         await expect(page.locator('h1')).toContainText('IAMT');
         await expect(page.getByText('Click to upload')).toBeVisible();

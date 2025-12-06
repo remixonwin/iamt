@@ -1,0 +1,21 @@
+{
+  "name": "iamt-tracker",
+  "version": "1.0.0",
+  "description": "Self-hosted BitTorrent tracker for IAMT P2P file sharing",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "bittorrent",
+    "tracker",
+    "webtorrent",
+    "p2p"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "bittorrent-tracker": "^11.1.2"
+  }
+}

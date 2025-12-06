@@ -271,6 +271,7 @@ app.get('/', (req, res) => {
         dhtEnabled: true,
         trackers: trackerList.length,
         minioEnabled: minioReady,
+        kuboEnabled: kuboReady,
         uptime: process.uptime(),
     });
 });
@@ -301,6 +302,11 @@ app.get('/health', (req, res) => {
             enabled: minioReady,
             endpoint: minioReady ? `${MINIO_ENDPOINT}:${MINIO_PORT}` : null,
             bucket: minioReady ? MINIO_BUCKET : null,
+        },
+        kubo: {
+            enabled: kuboReady,
+            api: kuboReady ? KUBO_API : null,
+            gateway: kuboReady ? KUBO_GATEWAY : null,
         },
         uptime: process.uptime(),
         memory: process.memoryUsage(),
@@ -376,6 +382,23 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
                 });
         }
 
+        // Backup to IPFS for decentralized redundancy (async, don't block response)
+        let ipfsCid = null;
+        if (kuboReady) {
+            uploadToIPFS(newPath, fileName)
+                .then(cid => {
+                    if (cid) {
+                        ipfsCid = cid;
+                        console.log(`[Kubo] Backed up to IPFS: ${cid}`);
+                        // Store IPFS CID mapping for fallback downloads
+                        torrent.ipfsCid = cid;
+                    }
+                })
+                .catch(err => {
+                    console.warn(`[Kubo] Backup failed: ${err.message}`);
+                });
+        }
+
         console.log(`[Magnet] ${torrent.magnetURI.substring(0, 60)}...`);
 
         res.json({
@@ -386,6 +409,7 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
             magnetURI: torrent.magnetURI,
             infoHash: torrent.infoHash,
             peers: torrent.numPeers,
+            ipfsCid: ipfsCid,
         });
 
     } catch (error) {

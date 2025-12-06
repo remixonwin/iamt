@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { publicKeyToDid, generateSeedPhrase, validateSeedPhrase } from '@/adapters/identity/gunSea';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Gun = require('gun');
+
 // Mock bip39 module
 vi.mock('bip39', () => ({
     generateMnemonic: vi.fn(() => 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'),
@@ -18,6 +21,35 @@ vi.mock('bs58', () => ({
 describe('GunSEA Identity Adapter', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    it('should attempt one-time recovery on corrupted auth error', async () => {
+        const adapterModule = await import('@/adapters/identity/gunSea');
+        const { GunSeaAdapter } = adapterModule as unknown as { GunSeaAdapter: new () => any };
+
+        const adapter = new GunSeaAdapter();
+
+        // Mock gun and user.auth
+        const authMock = vi.fn()
+            // First call: simulate corruption error from Gun
+            .mockImplementationOnce((_alias: string, _pass: string, cb: (ack: { err?: string }) => void) => {
+                cb({ err: 'Invalid data: Number at ~some.path' });
+            })
+            // Second call (after cleanup): succeed
+            .mockImplementationOnce((_alias: string, _pass: string, cb: (ack: { err?: string }) => void) => {
+                cb({});
+            });
+
+        (adapter as any).user = { auth: authMock };
+        (adapter as any).gun = new Gun({ localStorage: false });
+
+        // Spy on clearLocalGunData to ensure it is called
+        const clearSpy = vi.spyOn(adapter as any, 'clearLocalGunData');
+
+        await adapter['authenticateInternal']('test@example.com', 'password123');
+
+        expect(authMock).toHaveBeenCalledTimes(2);
+        expect(clearSpy).toHaveBeenCalledTimes(1);
     });
 
     describe('publicKeyToDid', () => {

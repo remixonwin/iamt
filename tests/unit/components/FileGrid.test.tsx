@@ -33,14 +33,60 @@ describe('FileGrid', () => {
         const onDelete = vi.fn();
         render(<FileGrid files={mockFiles} onDelete={onDelete} onPreview={() => { }} />);
 
-        // Find buttons. Since they are hidden until hover, they exist in DOM.
-        // The SVG path for delete icon has specific d attribute or we can find by role/class if available.
-        // Or better, add aria-label to button in source component. But assuming I can't edit source easily now,
-        // I will find button by traversing or adding selector.
-        // Actually, let's just use container query or queryAllByRole('button')
-
         const deleteButtons = screen.getAllByRole('button');
+        // The first file renders a delete button
         fireEvent.click(deleteButtons[0]);
         expect(onDelete).toHaveBeenCalledWith('1');
     });
+
+    it('should render video preview correctly', () => {
+        const videoFile = [{
+            id: '3', name: 'movie.mp4', size: 10000, type: 'video/mp4', preview: 'blob:video',
+            uploadedAt: Date.now(), visibility: 'public' as const
+        }];
+        const { container } = render(<FileGrid files={videoFile} onDelete={() => { }} onPreview={() => { }} />);
+        const video = container.querySelector('video');
+        expect(video).toBeInTheDocument();
+        expect(video).toHaveAttribute('src', 'blob:video');
+    });
+
+    it('should render audio preview correctly', () => {
+        const audioFile = [{
+            id: '4', name: 'song.mp3', size: 500, type: 'audio/mpeg', preview: 'blob:audio',
+            uploadedAt: Date.now(), visibility: 'public' as const
+        }];
+        const { container } = render(<FileGrid files={audioFile} onDelete={() => { }} onPreview={() => { }} />);
+        const audio = container.querySelector('audio');
+        expect(audio).toBeInTheDocument();
+        expect(audio).toHaveAttribute('src', 'blob:audio');
+    });
+
+    it('should render PDF placeholder correctly', () => {
+        const pdfFile = [{
+            id: '5', name: 'doc.pdf', size: 2000, type: 'application/pdf', preview: 'blob:pdf',
+            uploadedAt: Date.now(), visibility: 'public' as const
+        }];
+        render(<FileGrid files={pdfFile} onDelete={() => { }} onPreview={() => { }} />);
+        expect(screen.getByText('Click to view')).toBeInTheDocument();
+    });
+
+    it('should display correct badges for visibility', () => {
+        const files = [
+            { id: 'p1', name: 'private.txt', size: 1, type: 'text', uploadedAt: 0, visibility: 'private' as const },
+            { id: 'p2', name: 'pwd.txt', size: 1, type: 'text', uploadedAt: 0, visibility: 'password-protected' as const },
+        ];
+        render(<FileGrid files={files} onDelete={() => { }} onPreview={() => { }} />);
+        expect(screen.getByText('Private')).toBeInTheDocument();
+        expect(screen.getByText('PWD')).toBeInTheDocument();
+    });
+
+    it('should display encrypted warning if cannot decrypt', () => {
+        const file = [{
+            id: 'Enc', name: 'secret.txt', size: 100, type: 'text/plain', uploadedAt: 0,
+            visibility: 'private' as const, encrypted: true, canDecrypt: false
+        }];
+        render(<FileGrid files={file} onDelete={() => { }} onPreview={() => { }} />);
+        expect(screen.getByText("🔒 Can't decrypt")).toBeInTheDocument();
+    });
 });
+

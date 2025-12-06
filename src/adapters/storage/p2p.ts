@@ -21,6 +21,28 @@ async function loadWebTorrent(): Promise<typeof import('webtorrent') | null> {
     }
 }
 
+// Self-hosted tracker URL (configurable via environment)
+const SELF_HOSTED_TRACKER = typeof process !== 'undefined' 
+    ? (process.env.NEXT_PUBLIC_TRACKER_URL || '')
+    : '';
+
+// Build tracker list with self-hosted tracker prioritized if available
+function getTrackerList(): string[] {
+    const trackers = [
+        'wss://tracker.openwebtorrent.com',
+        'wss://tracker.btorrent.xyz',
+        'wss://tracker.webtorrent.dev',
+        'wss://tracker.files.fm:7073/announce',
+    ];
+    
+    // Prioritize self-hosted tracker if configured
+    if (SELF_HOSTED_TRACKER) {
+        trackers.unshift(SELF_HOSTED_TRACKER);
+    }
+    
+    return trackers;
+}
+
 export const getP2PClient = async (): Promise<Instance | null> => {
     if (typeof window === 'undefined') return null;
 
@@ -28,16 +50,14 @@ export const getP2PClient = async (): Promise<Instance | null> => {
         const WebTorrent = await loadWebTorrent();
         if (!WebTorrent) return null;
 
+        const trackerList = getTrackerList();
+        console.log('[WebTorrent] Using trackers:', trackerList);
+
         // @ts-ignore
         client = new WebTorrent({
             dht: true, // Enable DHT for tracker-less peer discovery
             tracker: {
-                announce: [
-                    'wss://tracker.openwebtorrent.com',
-                    'wss://tracker.btorrent.xyz',
-                    'wss://tracker.webtorrent.dev',
-                    'wss://tracker.files.fm:7073/announce',
-                ]
+                announce: trackerList
             }
         });
 
@@ -53,6 +73,8 @@ export const seedFile = async (file: File): Promise<string> => {
     const client = await getP2PClient();
     if (!client) throw new Error('WebTorrent not supported in this environment');
 
+    const trackerList = getTrackerList();
+
     return new Promise((resolve, reject) => {
         // Check if already seeding
         const existing = client.torrents.find(t => t.name === file.name);
@@ -62,12 +84,7 @@ export const seedFile = async (file: File): Promise<string> => {
         }
 
         client.seed(file, {
-            announce: [
-                'wss://tracker.openwebtorrent.com',
-                'wss://tracker.btorrent.xyz',
-                'wss://tracker.webtorrent.dev',
-                'wss://tracker.files.fm:7073/announce',
-            ]
+            announce: trackerList
         }, (torrent) => {
             console.log('[P2P] Seeding:', torrent.infoHash);
             resolve(torrent.magnetURI);

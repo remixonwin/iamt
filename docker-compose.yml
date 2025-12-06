@@ -28,10 +28,14 @@ services:
 
   # Self-hosted BitTorrent tracker for reliable P2P discovery
   tracker:
-    image: node:20-alpine
-    command: npx bittorrent-tracker --ws --port 8000
+    build:
+      context: ./tracker
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    environment:
+      - PORT=8000
+      - STATS_INTERVAL=60000
     restart: always
 
   # MinIO for durable S3-compatible object storage

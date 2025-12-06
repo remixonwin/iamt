@@ -17,6 +17,8 @@ const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:876
 // and fall back to localStorage if connection fails.
 const PUBLIC_RELAYS: string[] = [
     'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-eu.herokuapp.com/gun',
+    'https://gun-us.herokuapp.com/gun'
 ];
 
 // Determine if running in production (not localhost)
@@ -103,27 +105,31 @@ export class GunDatabaseAdapter {
         if (this.initialized) return;
         this.initialized = true;
 
-        const Gun = (await import('gun')).default;
-
-        console.log('[Gun.js] Environment:', isProduction ? 'production' : 'development');
-        console.log('[Gun.js] Connecting to relays:', RELAYS);
-
-        this.gun = Gun({
-            peers: RELAYS,
-            localStorage: true,
-        });
-
-        console.log('[Gun.js] LocalStorage enabled:', true);
-
-        // Verify localStorage is accessible
         try {
-            const testKey = `gun-test-${Date.now()}`;
-            localStorage.setItem(testKey, 'test');
-            const retrieved = localStorage.getItem(testKey);
-            localStorage.removeItem(testKey);
-            console.log('[Gun.js] LocalStorage verified:', retrieved === 'test');
-        } catch (e) {
-            console.error('[Gun.js] LocalStorage test failed:', e);
+            const Gun = (await import('gun')).default;
+
+            console.log('[Gun.js] Environment:', isProduction ? 'production' : 'development');
+            console.log('[Gun.js] Connecting to relays:', RELAYS);
+
+            this.gun = Gun({
+                peers: RELAYS,
+                localStorage: true,
+            });
+
+            console.log('[Gun.js] LocalStorage enabled:', true);
+
+            // Verify localStorage is accessible
+            try {
+                const testKey = `gun-test-${Date.now()}`;
+                localStorage.setItem(testKey, 'test');
+                const retrieved = localStorage.getItem(testKey);
+                localStorage.removeItem(testKey);
+                console.log('[Gun.js] LocalStorage verified:', retrieved === 'test');
+            } catch (e) {
+                console.error('[Gun.js] LocalStorage test failed:', e);
+            }
+        } catch (error) {
+            console.error('[Gun.js] Initialization failed:', error);
         }
     }
 
@@ -266,6 +272,8 @@ export class GunDatabaseAdapter {
                     callback({ ...data });
                 }, 100);
             });
+        }).catch(err => {
+            console.error('[Gun.js] Subscribe failed:', err);
         });
 
         return () => {
@@ -378,5 +386,53 @@ export class GunDatabaseAdapter {
         }
 
         return file.ownerId === ownerId;
+    }
+
+    /**
+     * Save a file to the User's Graph (Private/Personal Storage)
+     * This ensures the file is synced to the user's account across devices
+     */
+    async saveUserFile(file: GunFileMetadata, user: any): Promise<void> {
+        if (!user || !user.is) throw new Error('User not authenticated');
+
+        return new Promise((resolve, reject) => {
+            // Save to user's 'files' graph
+            user.get(APP_NAMESPACE).get('files').get(file.id).put(file, (ack: { err?: string }) => {
+                if (ack.err) {
+                    console.error('[Gun.js] Failed to save to User Graph:', ack.err);
+                    reject(new Error(ack.err));
+                } else {
+                    console.log('[Gun.js] Saved to User Graph:', file.id);
+                    // Also save to global graph for discovery if public, 
+                    // or for availability if private (encrypted blob still needs to be found)
+                    this.set('files', file.id, file).then(() => resolve());
+                }
+            });
+        });
+    }
+
+    /**
+     * Get files from the User's Graph
+     */
+    async getUserFiles(user: any): Promise<GunFileMetadata[]> {
+        if (!user || !user.is) return [];
+
+        return new Promise((resolve) => {
+            const files: Record<string, GunFileMetadata> = {};
+
+            user.get(APP_NAMESPACE).get('files').map().once((data: GunFileMetadata & { _?: unknown }, key: string) => {
+                if (data && key && key !== '_') {
+                    const cleanData = { ...data };
+                    delete cleanData._;
+                    files[key] = cleanData as GunFileMetadata;
+                }
+            });
+
+            // Wait a bit for data to gather
+            setTimeout(() => {
+                console.log('[Gun.js] Loaded from User Graph:', Object.keys(files).length, 'files');
+                resolve(Object.values(files));
+            }, 1000);
+        });
     }
 }
