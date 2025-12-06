@@ -7,7 +7,8 @@ const mockFile: UploadedFile = {
     id: '1',
     file: new File([''], 'test.txt', { type: 'text/plain' }),
     progress: 0,
-    status: 'pending'
+    status: 'pending',
+    visibility: 'public'
 };
 
 describe('FilePreview', () => {
