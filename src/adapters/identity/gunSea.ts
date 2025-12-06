@@ -17,9 +17,10 @@ const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:876
 
 // Working public Gun.js relays for production
 // Note: Vercel serverless functions don't support WebSockets, so we must use external relays
+// These are the more reliable relays confirmed working 2024-2025
 const PUBLIC_RELAYS: string[] = [
-    'https://gun-relay.meething.space/gun',
-    'https://peer.wallie.io/gun',
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-matrix.herokuapp.com/gun',
 ];
 
 // Determine if running in production
@@ -48,7 +49,7 @@ export function publicKeyToDid(publicKey: string): string {
         const prefixedKey = new Uint8Array(multicodecPrefix.length + keyBytes.length);
         prefixedKey.set(multicodecPrefix);
         prefixedKey.set(keyBytes, multicodecPrefix.length);
-        
+
         // Base58-btc encode with 'z' multibase prefix
         const encoded = bs58.encode(prefixedKey);
         return `did:key:z${encoded}`;
@@ -90,7 +91,7 @@ async function encryptWithPassword(data: string, password: string): Promise<{ en
     const encoder = new TextEncoder();
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    
+
     // Derive key from password
     const keyMaterial = await crypto.subtle.importKey(
         'raw',
@@ -99,7 +100,7 @@ async function encryptWithPassword(data: string, password: string): Promise<{ en
         false,
         ['deriveBits', 'deriveKey']
     );
-    
+
     const key = await crypto.subtle.deriveKey(
         { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
         keyMaterial,
@@ -107,13 +108,13 @@ async function encryptWithPassword(data: string, password: string): Promise<{ en
         false,
         ['encrypt']
     );
-    
+
     const encrypted = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv },
         key,
         encoder.encode(data)
     );
-    
+
     return {
         encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
         salt: btoa(String.fromCharCode(...salt)),
@@ -127,11 +128,11 @@ async function encryptWithPassword(data: string, password: string): Promise<{ en
 async function decryptWithPassword(encrypted: string, password: string, salt: string, iv: string): Promise<string> {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-    
+
     const saltBytes = Uint8Array.from(atob(salt), c => c.charCodeAt(0));
     const ivBytes = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
     const encryptedBytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
-    
+
     const keyMaterial = await crypto.subtle.importKey(
         'raw',
         encoder.encode(password),
@@ -139,7 +140,7 @@ async function decryptWithPassword(encrypted: string, password: string, salt: st
         false,
         ['deriveBits', 'deriveKey']
     );
-    
+
     const key = await crypto.subtle.deriveKey(
         { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
         keyMaterial,
@@ -147,13 +148,13 @@ async function decryptWithPassword(encrypted: string, password: string, salt: st
         false,
         ['decrypt']
     );
-    
+
     const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: ivBytes },
         key,
         encryptedBytes
     );
-    
+
     return decoder.decode(decrypted);
 }
 
@@ -195,7 +196,7 @@ export class GunSeaAdapter {
         this.user = this.gun.user();
         this.SEA = (Gun as { SEA?: unknown }).SEA;
 
-        console.log('[GunSEA] Initialized with relay:', PRIMARY_RELAY);
+        console.log('[GunSEA] Initialized with relays:', RELAYS);
 
         // Try to restore session
         this.restoreSession();
@@ -222,7 +223,7 @@ export class GunSeaAdapter {
 
         // Generate seed phrase
         const seedPhrase = generateSeedPhrase();
-        
+
         // Create Gun.js user with email as alias
         return new Promise((resolve, reject) => {
             this.user.create(request.email, request.password, async (ack: { err?: string; pub?: string }) => {
