@@ -106,7 +106,7 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
         cid = match[1].toLowerCase();
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         // Helper to get blob from torrent file using modern API
         const getBlobFromFile = async (file: unknown): Promise<Blob> => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -145,7 +145,8 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
 
         // Check if we already have it
         // client.get() is reliable for finding by infoHash
-        let torrent = cid ? client.get(cid) : null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let torrent: any = cid ? client.get(cid) : null;
 
         // If not found by ID, try to add it
         if (!torrent) {
