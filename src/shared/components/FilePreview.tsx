@@ -86,6 +86,7 @@ export function FilePreview({ uploadedFile, onRemove }: FilePreviewProps) {
                 {/* Remove Button */}
                 <button
                     onClick={() => onRemove(uploadedFile.id)}
+                    data-testid="remove-file-button"
                     className="absolute top-3 right-3 p-2 rounded-lg opacity-0 group-hover:opacity-100 
                      bg-[var(--surface)] hover:bg-[var(--error)]/20 hover:text-[var(--error)]
                      transition-all duration-200"

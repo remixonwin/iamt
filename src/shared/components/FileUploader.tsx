@@ -264,6 +264,7 @@ export function FileUploader({
                     onChange={handleInputChange}
                     className="hidden"
                     disabled={disabled}
+                    data-testid="file-input"
                 />
 
                 <div className="relative z-10 space-y-4">
