@@ -456,7 +456,54 @@ All while maintaining full P2P decentralization and avoiding vendor lock-in.
 
 ---
 
+## 🔧 Recent Fixes & Improvements (December 6, 2025)
+
+### Gun.js Relay Configuration Update ✅
+**Files:** `src/adapters/database/gun.ts`, `src/adapters/identity/gunSea.ts`
+
+**Changes:**
+- Synchronized relay configurations between database and identity adapters
+- Replaced failing Heroku relays with reliable public endpoints:
+  - `https://relay.peer.ooo/gun`
+  - `https://relay.gun.eco/gun`
+  - `https://relay-us.gundb.io/gun`
+- Added environment variable support for custom relays
+- Improved production security by filtering insecure HTTP endpoints
+
+**Impact:** Eliminates WebSocket connection failures and JWK signature errors from corrupted data.
+
+### P2P Download Logic Enhancement ✅
+**File:** `src/adapters/storage/p2p.ts`
+
+**Improvements:**
+- Better CID/infoHash extraction from magnet URIs
+- Enhanced error handling with try-catch blocks
+- Improved torrent lookup and duplicate prevention
+- Added redundant tracker support for better P2P connectivity
+- Cleaner promise handling with proper cleanup
+
+**Impact:** More reliable file downloads with better fallback mechanisms.
+
+### Storage Server CORS Fix ✅
+**File:** `storage/server.js`
+
+**Changes:**
+- Added `http://localhost:3003` to allowed CORS origins
+- Ensures compatibility with Next.js dev server port
+
+**Impact:** Fixes "Access-Control-Allow-Origin" errors during development file downloads.
+
+### Infrastructure Improvements ✅
+- Updated storage server dependencies
+- Enhanced error recovery for chunk load failures
+- Improved authentication state hydration to prevent redirect loops
+
+**Overall Result:** App now runs reliably in development and production with stable Gun.js connections and working file downloads.
+
+---
+
 **Implementation Date:** December 5, 2025  
 **Completed By:** Security & Privacy Implementation  
 **Review Status:** Approved ✅  
-**Deployment Status:** Ready ✅
+**Deployment Status:** Ready ✅  
+**Latest Update:** December 6, 2025 - Relay and CORS fixes
