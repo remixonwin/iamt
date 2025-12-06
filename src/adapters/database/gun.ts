@@ -10,6 +10,7 @@
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
 // Working public Gun.js relays for production
+// Note: Vercel serverless functions don't support WebSockets, so we must use external relays
 const PUBLIC_RELAYS: string[] = [
     'https://gun-relay.meething.space/gun',
     'https://peer.wallie.io/gun',
@@ -18,9 +19,9 @@ const PUBLIC_RELAYS: string[] = [
 // Determine if running in production (not localhost)
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
-// In production without custom relay, use public relays only
-// Otherwise use primary relay (for local dev)
-const RELAYS = isProduction && PRIMARY_RELAY.includes('localhost')
+// In production, ALWAYS use public relays (Vercel serverless can't handle WebSockets)
+// For local dev, use the configured PRIMARY_RELAY
+const RELAYS = isProduction
     ? PUBLIC_RELAYS
     : [PRIMARY_RELAY];
 
@@ -98,12 +99,28 @@ export class GunDatabaseAdapter {
 
         const Gun = (await import('gun')).default;
 
+        console.log('[GunSEA] Initializing with relay:', PRIMARY_RELAY);
+        console.log('[GunSEA] Fallback relays:', FALLBACK_RELAYS);
+        console.log('[GunSEA] All relays:', RELAYS);
+
         this.gun = Gun({
             peers: RELAYS,
             localStorage: true,
         });
 
         console.log('[Gun.js] Connecting to:', PRIMARY_RELAY);
+        console.log('[Gun.js] LocalStorage enabled:', true);
+
+        // Verify localStorage is accessible
+        try {
+            const testKey = `gun-test-${Date.now()}`;
+            localStorage.setItem(testKey, 'test');
+            const retrieved = localStorage.getItem(testKey);
+            localStorage.removeItem(testKey);
+            console.log('[Gun.js] LocalStorage verified:', retrieved === 'test');
+        } catch (e) {
+            console.error('[Gun.js] LocalStorage test failed:', e);
+        }
     }
 
     private async ensureGun() {
@@ -138,20 +155,33 @@ export class GunDatabaseAdapter {
 
     async set<T extends object>(path: string, key: string, value: T): Promise<void> {
         const gun = await this.ensureGun();
-        if (!gun) return;
+        if (!gun) {
+            console.error('[Gun.js] Set failed: Gun not initialized');
+            return;
+        }
+
+        console.log('[Gun.js] Attempting to set:', { path, key, valueKeys: Object.keys(value) });
 
         return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.log('[Gun.js] Set timeout:', key);
+                console.error('[Gun.js] Set timeout for key:', key);
                 resolve();
             }, 5000);
 
-            gun.get(APP_NAMESPACE).get(path).get(key).put(value, (ack: { err?: string }) => {
+            gun.get(APP_NAMESPACE).get(path).get(key).put(value, (ack: { err?: string; ok?: number }) => {
                 clearTimeout(timeout);
                 if (ack.err) {
-                    console.error('[Gun.js] Set error:', ack.err);
+                    console.error('[Gun.js] Set error:', { key, error: ack.err });
                 } else {
-                    console.log('[Gun.js] Set success:', key);
+                    console.log('[Gun.js] Set success:', { key, ack });
+
+                    // Verify localStorage
+                    try {
+                        const lsKeys = Object.keys(localStorage).filter(k => k.includes('gun') || k.includes(APP_NAMESPACE));
+                        console.log('[Gun.js] LocalStorage keys after set:', lsKeys.length);
+                    } catch (e) {
+                        console.error('[Gun.js] LocalStorage check failed:', e);
+                    }
                 }
                 resolve();
             });

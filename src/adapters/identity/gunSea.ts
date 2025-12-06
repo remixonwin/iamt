@@ -16,6 +16,7 @@ import type { UserProfile, UserKeypair, SignupRequest, LoginRequest, RecoveryReq
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
 // Working public Gun.js relays for production
+// Note: Vercel serverless functions don't support WebSockets, so we must use external relays
 const PUBLIC_RELAYS: string[] = [
     'https://gun-relay.meething.space/gun',
     'https://peer.wallie.io/gun',
@@ -23,7 +24,9 @@ const PUBLIC_RELAYS: string[] = [
 
 // Determine if running in production
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
-const RELAYS = isProduction && PRIMARY_RELAY.includes('localhost')
+
+// In production, ALWAYS use public relays (Vercel serverless can't handle WebSockets)
+const RELAYS = isProduction
     ? PUBLIC_RELAYS
     : [PRIMARY_RELAY];
 
