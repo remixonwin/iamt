@@ -1,12 +1,13 @@
 /**
  * Gun.js Database Adapter
  * 
- * Connects to local relay in development, public relay in production.
+ * Uses public Gun.js relays in production since Vercel serverless
+ * doesn't support WebSocket connections.
  */
 
 'use client';
 
-// Use environment variable or fallback to localhost for dev
+// Local relay for development
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
 // Working public Gun.js relays for production
@@ -19,8 +20,8 @@ const PUBLIC_RELAYS: string[] = [
 // Determine if running in production (not localhost)
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
-// In production, ALWAYS use public relays (Vercel serverless can't handle WebSockets)
-// For local dev, use the configured PRIMARY_RELAY
+// In production, ALWAYS use public relays (Vercel can't handle WebSockets)
+// For local dev, use localhost relay
 const RELAYS = isProduction
     ? PUBLIC_RELAYS
     : [PRIMARY_RELAY];
@@ -99,16 +100,14 @@ export class GunDatabaseAdapter {
 
         const Gun = (await import('gun')).default;
 
-        console.log('[GunSEA] Initializing with relay:', PRIMARY_RELAY);
-        console.log('[GunSEA] Public relays:', PUBLIC_RELAYS);
-        console.log('[GunSEA] All configured relays:', RELAYS);
+        console.log('[Gun.js] Environment:', isProduction ? 'production' : 'development');
+        console.log('[Gun.js] Connecting to relays:', RELAYS);
 
         this.gun = Gun({
             peers: RELAYS,
             localStorage: true,
         });
 
-        console.log('[Gun.js] Connecting to:', PRIMARY_RELAY);
         console.log('[Gun.js] LocalStorage enabled:', true);
 
         // Verify localStorage is accessible

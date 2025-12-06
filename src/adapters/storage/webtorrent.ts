@@ -116,8 +116,8 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         let cid: string;
         let serverResult: { infoHash: string; size: number; magnetURI?: string } | null = null;
 
-        // 2. Upload to Server (Pinning) - only if server is available
-        if (this.serverAvailable) {
+        // 2. Upload to Server (Pinning) - only if server is available and NOT in production without storage
+        if (this.serverAvailable && !isProductionWithoutStorage) {
             try {
                 const formData = new FormData();
                 formData.append('file', fileToUpload);
@@ -138,12 +138,14 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
                     serverResult = await response.json();
                 }
             } catch (err) {
-                console.warn('[Adapter] Server upload error:', err);
+                console.warn('[Adapter] Server upload error (P2P-only mode will be used):', err);
                 // Continue with P2P-only if we have infoHash
                 if (!infoHash) {
                     throw err;
                 }
             }
+        } else if (isProductionWithoutStorage) {
+            console.log('[Adapter] Production mode: Skipping server upload, using P2P-only');
         }
 
         // Use server infoHash if available, otherwise use P2P infoHash
@@ -194,12 +196,7 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
 
     /**
      * Download file: Hybrid Strategy
-     * 1. Try IPFS Gateway (legacy)
-     * 2. Try P2P Download (WebRTC)
-     * 3. Fallback to Server HTTP Download (if available)
-     * 
-     * Note: Decryption is handled separately by the caller
-     * using downloadAndDecrypt() for encrypted files
+     * Download file: P2P First, Server Fallback (if available)
      */
     async download(cid: string): Promise<Blob> {
         // Legacy IPFS fallback
@@ -219,13 +216,13 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         } catch (err) {
             console.warn('[Adapter] P2P download failed/timeout:', err);
 
-            // If no server available, P2P was our only option
-            if (!this.serverAvailable) {
-                throw new Error('P2P download failed and no storage server available. The file may not be seeded by any peers.');
+            // If in production without server OR no server available, P2P was our only option
+            if (isProductionWithoutStorage || !this.serverAvailable) {
+                throw new Error('P2P download failed. The file may not be seeded by any peers. Please ensure the original uploader has the page open.');
             }
         }
 
-        // Fallback to Server HTTP (only if server is available)
+        // Fallback to Server HTTP (only if server is available and NOT in production without storage)
         console.log('[Adapter] Falling back to Server HTTP...');
         const response = await fetch(`${this.apiUrl}/download/${cid}`);
 
