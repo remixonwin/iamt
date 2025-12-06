@@ -36,12 +36,11 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
     .map((url) => url.trim())
     .filter(Boolean);
 
-// Default public relays (tested working ones)
+// Default public relays (non-Heroku, still online)
 const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'https://relay.peer.ooo/gun', // Working
-    'https://gun-manhattan.herokuapp.com/gun', // Keep as fallback even if down
-    'https://gun-eu.herokuapp.com/gun', // Keep as fallback even if down
-    'https://gun-us.herokuapp.com/gun', // Keep as fallback even if down
+    'https://relay.peer.ooo/gun',
+    'https://relay.gun.eco/gun',
+    'https://relay-us.gundb.io/gun'
 ];
 
 // Determine if running in production
