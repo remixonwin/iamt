@@ -24,11 +24,8 @@ const PUBLIC_RELAYS: string[] = [
 // Determine if running in production (not localhost)
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
-// In production, ALWAYS use public relays (Vercel can't handle WebSockets)
-// For local dev, use localhost relay
-const RELAYS = isProduction
-    ? PUBLIC_RELAYS
-    : [PRIMARY_RELAY];
+// Always use redundant relays for maximum reliability
+const RELAYS = [PRIMARY_RELAY, ...PUBLIC_RELAYS];
 
 // App namespace
 const APP_NAMESPACE = 'iamt-files-v3';

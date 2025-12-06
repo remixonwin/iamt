@@ -23,6 +23,7 @@ interface StoredFile {
   magnetURI?: string;
   uploadedAt: number;
   deviceId?: string;
+  ownerId?: string;
   // Privacy fields
   visibility: FileVisibility;
   encrypted: boolean;
@@ -33,7 +34,7 @@ export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const [uploadQueue, setUploadQueue] = useState<UploadedFile[]>([]);
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
-  const [activeTab, setActiveTab] = useState<'upload' | 'files'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'public' | 'my-files'>('upload');
   const [isLoading, setIsLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'synced' | 'offline'>('connecting');
   const [viewerData, setViewerData] = useState<{ file: StoredFile; blob: Blob } | null>(null);
@@ -324,7 +325,21 @@ export default function Home() {
   };
 
   const totalSize = storedFiles.reduce((acc, f) => acc + f.size, 0);
-  const filesByType = storedFiles.reduce((acc, f) => {
+
+  const publicImages = storedFiles.filter((f) => {
+    if (f.visibility !== 'public') return false;
+    const info = getFileTypeInfo({ type: f.type } as File);
+    return info.category === 'image';
+  });
+
+  const myFiles = storedFiles.filter((f) => {
+    if (user?.did && f.ownerId) {
+      return f.ownerId === user.did;
+    }
+    return f.deviceId === dbRef.current?.getDeviceId();
+  });
+
+  const filesByType = publicImages.reduce((acc, f) => {
     const info = getFileTypeInfo({ type: f.type } as File);
     acc[info.category] = (acc[info.category] || 0) + 1;
     return acc;
@@ -396,11 +411,18 @@ export default function Home() {
             Upload
           </button>
           <button
-            onClick={() => setActiveTab('files')}
-            className={`px-6 py-3 rounded-xl font-medium transition-all ${activeTab === 'files' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface)] text-gray-400 hover:text-white'
+            onClick={() => setActiveTab('public')}
+            className={`px-6 py-3 rounded-xl font-medium transition-all ${activeTab === 'public' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface)] text-gray-400 hover:text-white'
               }`}
           >
-            My Files ({storedFiles.length})
+            Public Images ({publicImages.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('my-files')}
+            className={`px-6 py-3 rounded-xl font-medium transition-all ${activeTab === 'my-files' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface)] text-gray-400 hover:text-white'
+              }`}
+          >
+            My Files ({myFiles.length})
           </button>
         </div>
 
@@ -423,8 +445,10 @@ export default function Home() {
                 </div>
               )}
             </div>
+          ) : activeTab === 'public' ? (
+            <FileGrid files={publicImages} onDelete={handleDeleteFile} onPreview={handlePreviewFile} />
           ) : (
-            <FileGrid files={storedFiles} onDelete={handleDeleteFile} onPreview={handlePreviewFile} />
+            <FileGrid files={myFiles} onDelete={handleDeleteFile} onPreview={handlePreviewFile} />
           )}
         </div>
 

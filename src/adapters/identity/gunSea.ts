@@ -43,10 +43,9 @@ const PUBLIC_RELAYS: string[] = [
 // Determine if running in production
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
-// In production, ALWAYS use public relays (Vercel serverless can't handle WebSockets)
-const RELAYS = isProduction
-    ? PUBLIC_RELAYS
-    : [PRIMARY_RELAY];
+// Always use redundant relays for maximum reliability
+// Prioritize the primary (local/configured) relay, but include public backups
+const RELAYS = [PRIMARY_RELAY, ...PUBLIC_RELAYS];
 
 const APP_NAMESPACE = 'iamt-identity-v1';
 

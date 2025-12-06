@@ -9,11 +9,13 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/shared/contexts/AuthContext';
 
 export default function SignupPage() {
+    const router = useRouter();
     const { signUp, isLoading, error } = useAuth();
-    
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -61,7 +63,7 @@ export default function SignupPage() {
     };
 
     const handleContinue = () => {
-        window.location.href = '/profile';
+        router.push('/profile');
     };
 
     // Show seed phrase backup screen after successful signup
@@ -77,7 +79,7 @@ export default function SignupPage() {
                         </div>
                         <h1 className="text-2xl font-bold text-white mb-2">Save Your Recovery Phrase</h1>
                         <p className="text-gray-400 text-sm">
-                            Write down these 12 words in order and store them safely. 
+                            Write down these 12 words in order and store them safely.
                             This is the <strong className="text-white">only way</strong> to recover your account if you forget your password.
                         </p>
                     </div>
