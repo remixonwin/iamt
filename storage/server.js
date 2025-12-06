@@ -30,7 +30,7 @@ const PORT = process.env.PORT || 3001;
 const FILES_DIR = path.join(__dirname, 'files');
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:8765'];
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:8765'];
 
 // MinIO configuration
 const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || 'localhost';

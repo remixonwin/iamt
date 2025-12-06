@@ -21,9 +21,8 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
 // Default public relays (tested working ones)
 const DEFAULT_PUBLIC_RELAYS: string[] = [
     'https://relay.peer.ooo/gun', // Working
-    'https://gun-manhattan.herokuapp.com/gun', // Keep as fallback even if down
-    'https://gun-eu.herokuapp.com/gun', // Keep as fallback even if down
-    'https://gun-us.herokuapp.com/gun', // Keep as fallback even if down
+    'https://relay.gun.eco/gun', // Working
+    'https://relay-us.gundb.io/gun' // Working
 ];
 
 // Determine if running in production (not localhost)
@@ -138,7 +137,7 @@ export class GunDatabaseAdapter {
 
             // Suppress WebSocket connection errors in production
             if (isProduction) {
-                this.gun.on('error', (err) => {
+                this.gun.on('error', (err: Error | { message?: string } | null) => {
                     // Only log critical errors, not connection failures
                     if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
                         console.warn('[Gun.js] Error:', err);
