@@ -37,6 +37,10 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         this.serverAvailable = true; // Always attempt connection, let network stack handle failures
     }
 
+    private sanitizeFilename(name: string): string {
+        return name.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 255);
+    }
+
     /**
      * Upload file: Hybrid Strategy with Encryption
      * 
@@ -53,8 +57,12 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         let fileToUpload = file;
         let encryptionIv: string | undefined;
         let encryptionSalt: string | undefined;
+        let exportedKey: string | undefined; // Store the key from encryption
         const originalType = file.type;
         const originalName = file.name;
+
+        // Ensure filename matches what server will produce (for consistent InfoHash)
+        // Server sanitizes: name.replace(/[^a-zA-Z0-9._-]/g, '_')
 
         // Handle encryption for private/password-protected files
         if (visibility !== 'public' && isCryptoSupported()) {
@@ -63,7 +71,8 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
             if (visibility === 'password-protected' && options?.password) {
                 // Password-protected encryption
                 const result = await encryptFileWithPassword(file, options.password);
-                fileToUpload = new File([result.encryptedBlob], `${file.name}.encrypted`, {
+                const sanitizedName = this.sanitizeFilename(`${file.name}.encrypted`);
+                fileToUpload = new File([result.encryptedBlob], sanitizedName, {
                     type: 'application/octet-stream',
                 });
                 encryptionIv = result.iv;
@@ -71,13 +80,20 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
             } else {
                 // Private encryption (random key stored locally)
                 const result = await encryptFile(file);
-                fileToUpload = new File([result.encryptedBlob], `${file.name}.encrypted`, {
+                const sanitizedName = this.sanitizeFilename(`${file.name}.encrypted`);
+                fileToUpload = new File([result.encryptedBlob], sanitizedName, {
                     type: 'application/octet-stream',
                 });
                 encryptionIv = uint8ArrayToBase64(result.iv);
+                exportedKey = result.exportedKey; // Save the key from THIS encryption
 
                 // Key will be stored after we get the CID
-                // We need to return it for storage
+            }
+        } else {
+            // Public file: Sanitize name to match server
+            const sanitizedName = this.sanitizeFilename(file.name);
+            if (sanitizedName !== file.name) {
+                fileToUpload = new File([file], sanitizedName, { type: file.type });
             }
         }
 
@@ -138,19 +154,15 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
         }
 
         // Store encryption key in local keyring for private files
-        if (visibility === 'private' && isCryptoSupported()) {
-            // Re-encrypt to get the key (or we could pass it through)
-            // For efficiency, let's modify to pass key through
-            const encResult = await encryptFile(file);
+        if (visibility === 'private' && isCryptoSupported() && exportedKey && encryptionIv) {
             const keyring = getKeyring();
             await keyring.storeKey(
                 cid,
-                encResult.exportedKey,
-                uint8ArrayToBase64(encResult.iv),
+                exportedKey,
+                encryptionIv,
                 originalName,
                 originalType
             );
-            encryptionIv = uint8ArrayToBase64(encResult.iv);
             console.log('[Adapter] Encryption key stored in keyring for:', cid);
         }
 
@@ -246,21 +258,38 @@ export class WebTorrentStorageAdapter implements StorageAdapter {
             throw new Error('This file is password-protected. Use downloadWithPassword() instead.');
         }
 
+
+
         // Download encrypted blob
         const encryptedBlob = await this.download(cid);
 
-        // Decrypt
-        const decryptedBlob = await decryptFile(
-            {
-                encryptedBlob,
-                exportedKey: keyEntry.key,
-                iv: keyEntry.iv,
-            },
-            keyEntry.mimeType
-        );
+        console.log(`[Adapter] Downloaded blob size: ${encryptedBlob.size} bytes for CID: ${cid}`);
 
-        console.log('[Adapter] File decrypted successfully:', cid);
-        return decryptedBlob;
+        // Log first few bytes to check if it's not HTML/text error
+        try {
+            const header = await encryptedBlob.slice(0, 16).arrayBuffer();
+            console.log('[Adapter] First 16 bytes:', new Uint8Array(header));
+        } catch (e) {
+            console.warn('[Adapter] Failed to inspect blob');
+        }
+
+        // Decrypt
+        try {
+            const decryptedBlob = await decryptFile(
+                {
+                    encryptedBlob,
+                    exportedKey: keyEntry.key,
+                    iv: keyEntry.iv,
+                },
+                keyEntry.mimeType
+            );
+
+            console.log('[Adapter] File decrypted successfully:', cid);
+            return decryptedBlob;
+        } catch (error) {
+            console.error(`[Adapter] Decryption failed for ${cid}. Blob size: ${encryptedBlob.size}, Key found: ${!!keyEntry.key}, IV present: ${!!keyEntry.iv}`);
+            throw error;
+        }
     }
 
     /**

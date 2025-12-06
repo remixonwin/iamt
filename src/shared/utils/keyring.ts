@@ -8,11 +8,13 @@
  * - Keys stored in browser's IndexedDB (sandboxed per origin)
  * - Supports key export for backup
  * - Automatic cleanup of orphaned keys
+ * - User keypair storage for identity management
  */
 
 const KEYRING_DB_NAME = 'iamt-keyring';
-const KEYRING_DB_VERSION = 1;
+const KEYRING_DB_VERSION = 2; // Bumped for user keypairs
 const KEYS_STORE = 'encryption-keys';
+const USER_KEYPAIRS_STORE = 'user-keypairs';
 
 export interface KeyEntry {
     /** File ID (CID or info hash) */
@@ -31,6 +33,27 @@ export interface KeyEntry {
     salt?: string;
     /** Whether this is password-protected (key is derived, not stored) */
     isPasswordProtected: boolean;
+    /** Owner user ID (DID or public key) */
+    ownerId?: string;
+}
+
+export interface StoredUserKeypair {
+    /** User's DID (did:key:z...) */
+    did: string;
+    /** Gun.js public key */
+    publicKey: string;
+    /** Encrypted private key material */
+    encryptedPrivateKey: string;
+    /** Salt for password derivation */
+    passwordSalt: string;
+    /** IV for private key encryption */
+    privateKeyIv: string;
+    /** Encrypted 12-word seed phrase */
+    encryptedSeedPhrase: string;
+    /** Creation timestamp */
+    createdAt: number;
+    /** Last used timestamp */
+    lastUsedAt: number;
 }
 
 /**
@@ -51,10 +74,19 @@ function openKeyringDatabase(): Promise<IDBDatabase> {
         request.onupgradeneeded = (event) => {
             const db = (event.target as IDBOpenDBRequest).result;
             
+            // Create encryption keys store
             if (!db.objectStoreNames.contains(KEYS_STORE)) {
                 const store = db.createObjectStore(KEYS_STORE, { keyPath: 'fileId' });
                 store.createIndex('createdAt', 'createdAt', { unique: false });
                 store.createIndex('fileName', 'fileName', { unique: false });
+                store.createIndex('ownerId', 'ownerId', { unique: false });
+            }
+
+            // Create user keypairs store (new in v2)
+            if (!db.objectStoreNames.contains(USER_KEYPAIRS_STORE)) {
+                const userStore = db.createObjectStore(USER_KEYPAIRS_STORE, { keyPath: 'did' });
+                userStore.createIndex('publicKey', 'publicKey', { unique: true });
+                userStore.createIndex('createdAt', 'createdAt', { unique: false });
             }
         };
     });
@@ -295,6 +327,148 @@ export class LocalKeyring {
             privateFiles: keys.filter(k => !k.isPasswordProtected).length,
             passwordProtected: keys.filter(k => k.isPasswordProtected).length,
         };
+    }
+
+    /**
+     * Store a user keypair
+     */
+    async storeUserKeypair(keypair: StoredUserKeypair): Promise<void> {
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([USER_KEYPAIRS_STORE], 'readwrite');
+            const store = transaction.objectStore(USER_KEYPAIRS_STORE);
+            const request = store.put({
+                ...keypair,
+                lastUsedAt: Date.now(),
+            });
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                console.log('[Keyring] Stored user keypair for:', keypair.did);
+                resolve();
+            };
+        });
+    }
+
+    /**
+     * Get a user keypair by DID
+     */
+    async getUserKeypair(did: string): Promise<StoredUserKeypair | null> {
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([USER_KEYPAIRS_STORE], 'readonly');
+            const store = transaction.objectStore(USER_KEYPAIRS_STORE);
+            const request = store.get(did);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                resolve(request.result || null);
+            };
+        });
+    }
+
+    /**
+     * Get user keypair by public key
+     */
+    async getUserKeypairByPublicKey(publicKey: string): Promise<StoredUserKeypair | null> {
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([USER_KEYPAIRS_STORE], 'readonly');
+            const store = transaction.objectStore(USER_KEYPAIRS_STORE);
+            const index = store.index('publicKey');
+            const request = index.get(publicKey);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                resolve(request.result || null);
+            };
+        });
+    }
+
+    /**
+     * Get all stored user keypairs
+     */
+    async getAllUserKeypairs(): Promise<StoredUserKeypair[]> {
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([USER_KEYPAIRS_STORE], 'readonly');
+            const store = transaction.objectStore(USER_KEYPAIRS_STORE);
+            const request = store.getAll();
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                resolve(request.result || []);
+            };
+        });
+    }
+
+    /**
+     * Delete a user keypair
+     */
+    async deleteUserKeypair(did: string): Promise<void> {
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([USER_KEYPAIRS_STORE], 'readwrite');
+            const store = transaction.objectStore(USER_KEYPAIRS_STORE);
+            const request = store.delete(did);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                console.log('[Keyring] Deleted user keypair for:', did);
+                resolve();
+            };
+        });
+    }
+
+    /**
+     * Link a file key to a user (set owner)
+     */
+    async linkFileToUser(fileId: string, ownerId: string): Promise<void> {
+        const entry = await this.getKey(fileId);
+        if (!entry) {
+            throw new Error(`Key not found for file: ${fileId}`);
+        }
+
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([KEYS_STORE], 'readwrite');
+            const store = transaction.objectStore(KEYS_STORE);
+            const request = store.put({
+                ...entry,
+                ownerId,
+            });
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                console.log('[Keyring] Linked file', fileId, 'to user', ownerId);
+                resolve();
+            };
+        });
+    }
+
+    /**
+     * Get all keys owned by a user
+     */
+    async getKeysByOwner(ownerId: string): Promise<KeyEntry[]> {
+        const db = await this.getDb();
+
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([KEYS_STORE], 'readonly');
+            const store = transaction.objectStore(KEYS_STORE);
+            const index = store.index('ownerId');
+            const request = index.getAll(ownerId);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                resolve(request.result || []);
+            };
+        });
     }
 }
 

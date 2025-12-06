@@ -6,6 +6,7 @@
  * - CORS restrictions for authorized origins
  * - File size limits
  * - Helmet for security headers
+ * - Content-addressable storage (InfoHash-based deduplication)
  * 
  * Run with: npm start
  */
@@ -37,8 +38,10 @@ if (!fs.existsSync(FILES_DIR)) {
 // Initialize WebTorrent client
 const client = new WebTorrent();
 
-// Track active torrents
-const torrents = new Map();
+// Content-addressable storage: Map InfoHash -> Torrent
+// This allows multiple files with identical content to share the same torrent
+const torrents = new Map(); // InfoHash -> Torrent object
+const filePaths = new Map(); // InfoHash -> Array of disk paths (for duplicates)
 
 const app = express();
 
@@ -169,8 +172,16 @@ app.post('/upload', uploadLimiter, upload.single('file'), async (req, res) => {
             });
         });
 
-        torrents.set(torrent.magnetURI, torrent);
-        // Store disk path for direct access
+        // Store by InfoHash for content-addressable lookup
+        torrents.set(torrent.infoHash, torrent);
+
+        // Track file path
+        if (!filePaths.has(torrent.infoHash)) {
+            filePaths.set(torrent.infoHash, []);
+        }
+        filePaths.get(torrent.infoHash).push(newPath);
+
+        // Store disk path on torrent object for compatibility
         torrent.diskPath = newPath;
 
         console.log(`[Magnet] ${torrent.magnetURI.substring(0, 60)}...`);
@@ -205,56 +216,81 @@ app.get('/files', (req, res) => {
 
 // Get file info
 app.get('/file/:hash', (req, res) => {
-    for (const [, torrent] of torrents) {
-        if (torrent.infoHash === req.params.hash) {
-            return res.json({
-                id: torrent.infoHash,
-                name: torrent.name,
-                size: torrent.length,
-                magnetURI: torrent.magnetURI,
-                peers: torrent.numPeers,
-            });
-        }
+    const torrent = torrents.get(req.params.hash);
+
+    if (torrent) {
+        return res.json({
+            id: torrent.infoHash,
+            name: torrent.name,
+            size: torrent.length,
+            magnetURI: torrent.magnetURI,
+            peers: torrent.numPeers,
+        });
     }
+
     res.status(404).json({ error: 'Not found' });
 });
 
 // Download file (HTTP fallback)
 app.get('/download/:hash', (req, res) => {
-    for (const [, torrent] of torrents) {
-        if (torrent.infoHash === req.params.hash) {
-            // Prefer direct disk access if available (avoids WebTorrent path issues)
-            if (torrent.diskPath && fs.existsSync(torrent.diskPath)) {
-                return safeDownload(res, torrent.diskPath, torrent.name);
-            }
+    console.log(`[Download] Request for hash: ${req.params.hash}`);
+    console.log(`[Download] Torrents in map: ${torrents.size}`);
 
-            // Fallback to WebTorrent stream (e.g. if memory-only or remote)
-            if (torrent.files && torrent.files.length > 0) {
-                const file = torrent.files[0];
-                res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-                const stream = file.createReadStream();
-                stream.on('error', (err) => {
-                    console.error('Stream error:', err);
-                    if (!res.headersSent) res.status(500).end();
-                });
-                stream.pipe(res);
-                return;
+    const torrent = torrents.get(req.params.hash);
+
+    if (torrent) {
+        console.log(`[Download] Found torrent: ${torrent.name}`);
+
+        // Prefer direct disk access if available (avoids WebTorrent path issues)
+        // Try the primary disk path first
+        if (torrent.diskPath && fs.existsSync(torrent.diskPath)) {
+            console.log(`[Download] Using disk path: ${torrent.diskPath}`);
+            return safeDownload(res, torrent.diskPath, torrent.name);
+        }
+
+        // Try any alternative file paths for duplicates
+        const paths = filePaths.get(req.params.hash);
+        if (paths && paths.length > 0) {
+            for (const path of paths) {
+                if (fs.existsSync(path)) {
+                    console.log(`[Download] Using alternative disk path: ${path}`);
+                    return safeDownload(res, path, torrent.name);
+                }
             }
         }
+
+        // Fallback to WebTorrent stream (e.g. if memory-only or remote)
+        if (torrent.files && torrent.files.length > 0) {
+            console.log(`[Download] Using WebTorrent stream`);
+            const file = torrent.files[0];
+            res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+            const stream = file.createReadStream();
+            stream.on('error', (err) => {
+                console.error('Stream error:', err);
+                if (!res.headersSent) res.status(500).end();
+            });
+            stream.pipe(res);
+            return;
+        }
     }
+
+    console.log(`[Download] Hash not found: ${req.params.hash}`);
+    console.log(`[Download] Available hashes:`, Array.from(torrents.keys()));
     res.status(404).json({ error: 'Not found' });
 });
 
 // Delete file
 app.delete('/file/:hash', (req, res) => {
-    for (const [magnet, torrent] of torrents) {
-        if (torrent.infoHash === req.params.hash) {
-            const name = torrent.name;
-            torrent.destroy();
-            torrents.delete(magnet);
-            return res.json({ success: true, deleted: name });
-        }
+    const torrent = torrents.get(req.params.hash);
+
+    if (torrent) {
+        const name = torrent.name;
+        torrent.destroy();
+        torrents.delete(req.params.hash);
+        filePaths.delete(req.params.hash);
+        return res.json({ success: true, deleted: name });
     }
+
     res.status(404).json({ error: 'Not found' });
 });
 
@@ -302,41 +338,75 @@ async function reseedExistingFiles() {
             }
 
             try {
-                const torrent = await new Promise((resolve, reject) => {
-                    const timeout = setTimeout(() => {
-                        reject(new Error('Seeding timeout'));
-                    }, 10000);
+                // First, try to seed the file
+                let torrent;
+                let infoHash;
 
-                    // Reconstruct name (simple heuristic)
-                    const cleanName = fileName.replace(/^\d+-/, '');
+                try {
+                    torrent = await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Seeding timeout'));
+                        }, 10000);
 
-                    client.seed(filePath, {
-                        name: cleanName,
-                        announce: [
-                            'wss://tracker.openwebtorrent.com',
-                            'wss://tracker.btorrent.xyz',
-                        ],
-                    }, (t) => {
-                        clearTimeout(timeout);
-                        resolve(t);
+                        // Reconstruct name (simple heuristic)
+                        const cleanName = fileName.replace(/^\d+-/, '');
+
+                        client.seed(filePath, {
+                            name: cleanName,
+                            announce: [
+                                'wss://tracker.openwebtorrent.com',
+                                'wss://tracker.btorrent.xyz',
+                            ],
+                        }, (t) => {
+                            clearTimeout(timeout);
+                            resolve(t);
+                        });
+
+                        client.on('error', (err) => {
+                            clearTimeout(timeout);
+                            reject(err);
+                        });
                     });
 
-                    client.on('error', (err) => {
-                        clearTimeout(timeout);
-                        reject(err);
-                    });
-                });
+                    infoHash = torrent.infoHash;
+                } catch (error) {
+                    // If error contains "already being seeded", it's a duplicate - find the existing torrent
+                    if (error.message && error.message.includes('already')) {
+                        // Find existing torrent by checking all torrents for matching content
+                        // This is a workaround since WebTorrent rejects duplicates
+                        console.log(`[Re-seed] ${fileName} is a duplicate, finding existing torrent...`);
 
-                torrents.set(torrent.magnetURI, torrent);
-                // Store disk path for direct access
-                torrent.diskPath = filePath;
-                console.log(`[Re-seed] ${fileName} -> ${torrent.infoHash}`);
+                        // Try to get infoHash by computing it from the file
+                        // For now, we'll skip this file and let it be served from disk if needed
+                        console.warn(`[Re-seed] Skipping duplicate: ${fileName}`);
+                        continue;
+                    }
+                    throw error;
+                }
+
+                // Store by InfoHash
+                if (!torrents.has(infoHash)) {
+                    torrents.set(infoHash, torrent);
+                }
+
+                // Track file path (handles duplicates)
+                if (!filePaths.has(infoHash)) {
+                    filePaths.set(infoHash, []);
+                }
+                filePaths.get(infoHash).push(filePath);
+
+                // Store disk path on torrent object for compatibility
+                if (!torrent.diskPath) {
+                    torrent.diskPath = filePath;
+                }
+
+                console.log(`[Re-seed] ${fileName} -> ${infoHash}`);
             } catch (error) {
                 console.error(`[Re-seed Error] ${fileName}:`, error.message);
             }
         }
 
-        console.log(`[Startup] Re-seeding complete. ${torrents.size} torrents active.`);
+        console.log(`[Startup] Re-seeding complete. ${torrents.size} unique torrents active.`);
     } catch (err) {
         console.error('[Startup] Re-seeding failed:', err);
     }

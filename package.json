@@ -15,12 +15,15 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "bip39": "^3.1.0",
+    "bs58": "^6.0.0",
+    "buffer": "^6.0.3",
     "gun": "^0.2020.1241",
     "next": "^14.2.33",
     "process": "^0.11.10",
-    "buffer": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "resend": "^6.4.2",
     "webtorrent": "^2.8.5"
   },
   "devDependencies": {

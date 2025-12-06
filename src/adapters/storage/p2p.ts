@@ -90,13 +90,44 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             // Ignore lookup errors
         }
 
+        // Helper to get blob from torrent file using modern API
+        const getBlobFromFile = async (file: unknown): Promise<Blob> => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const f = file as any;
+            // Try modern arrayBuffer() method first (WebTorrent 1.x+)
+            if (typeof f.arrayBuffer === 'function') {
+                const buffer = await f.arrayBuffer();
+                return new Blob([buffer]);
+            }
+            // Try streaming approach
+            if (typeof f.stream === 'function') {
+                const chunks: BlobPart[] = [];
+                const reader = f.stream().getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(new Uint8Array(value) as unknown as BlobPart);
+                }
+                return new Blob(chunks);
+            }
+            // Fallback to callback-based getBlob if available
+            if (typeof f.getBlob === 'function') {
+                return new Promise((res, rej) => {
+                    f.getBlob((err: Error | null, blob: Blob | null) => {
+                        if (err || !blob) rej(err || new Error('Failed to get blob'));
+                        else res(blob);
+                    });
+                });
+            }
+            throw new Error('No compatible method to extract file data');
+        };
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (existing && (existing as any).progress === 1) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (existing as any).files[0].getBlob((err: Error | null, blob: Blob | null) => {
-                if (err || !blob) reject(err);
-                else resolve(blob);
-            });
+            getBlobFromFile((existing as any).files[0])
+                .then(resolve)
+                .catch(reject);
             return;
         }
 
@@ -105,11 +136,13 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             // Already downloading, wait for it
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const existingTorrent = existing as any;
-            existingTorrent.on('done', () => {
-                existingTorrent.files[0].getBlob((err: Error | null, blob: Blob | null) => {
-                    if (err || !blob) reject(err);
-                    else resolve(blob);
-                });
+            existingTorrent.on('done', async () => {
+                try {
+                    const blob = await getBlobFromFile(existingTorrent.files[0]);
+                    resolve(blob);
+                } catch (err) {
+                    reject(err);
+                }
             });
             existingTorrent.on('error', reject);
             return;
@@ -128,13 +161,15 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             return;
         }
 
-        torrent.on('done', () => {
+        torrent.on('done', async () => {
             console.log('[P2P] Download complete:', torrent.infoHash);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (torrent as any).files[0].getBlob((err: Error | null, blob: Blob | null) => {
-                if (err || !blob) reject(err);
-                else resolve(blob);
-            });
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const blob = await getBlobFromFile((torrent as any).files[0]);
+                resolve(blob);
+            } catch (err) {
+                reject(err);
+            }
         });
 
         torrent.on('error', reject);

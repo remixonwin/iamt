@@ -50,6 +50,10 @@ export interface GunFileMetadata {
     originalType?: string;
     /** File hash for integrity verification */
     fileHash?: string;
+    
+    // Ownership fields
+    /** Owner user ID (DID or public key) */
+    ownerId?: string;
 }
 
 /**
@@ -213,5 +217,84 @@ export class GunDatabaseAdapter {
 
     getDeviceId(): string {
         return this.deviceId;
+    }
+
+    /**
+     * Save file metadata with optional owner
+     */
+    async saveFile(file: GunFileMetadata, ownerId?: string): Promise<void> {
+        const fileWithOwner = ownerId ? { ...file, ownerId } : file;
+        await this.set('files', file.id, fileWithOwner);
+    }
+
+    /**
+     * Get all files, optionally filtered by owner
+     */
+    async getFiles(ownerId?: string): Promise<GunFileMetadata[]> {
+        const data = await this.get<GunFileMetadata>('files');
+        if (!data) return [];
+        
+        const files = Object.values(data);
+        
+        if (ownerId) {
+            return files.filter(f => f.ownerId === ownerId);
+        }
+        
+        return files;
+    }
+
+    /**
+     * Get a single file by ID
+     */
+    async getFile(fileId: string): Promise<GunFileMetadata | null> {
+        const gun = await this.ensureGun();
+        if (!gun) return null;
+
+        return new Promise((resolve) => {
+            gun.get(APP_NAMESPACE).get('files').get(fileId).once((data: GunFileMetadata & { _?: unknown } | null) => {
+                if (data) {
+                    const cleanData = { ...data };
+                    delete cleanData._;
+                    resolve(cleanData as GunFileMetadata);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * Delete a file
+     */
+    async deleteFile(fileId: string): Promise<void> {
+        await this.delete('files', fileId);
+    }
+
+    /**
+     * Transfer file ownership to a new user
+     */
+    async transferOwnership(fileId: string, newOwnerId: string): Promise<void> {
+        const file = await this.getFile(fileId);
+        if (!file) {
+            throw new Error(`File not found: ${fileId}`);
+        }
+
+        await this.set('files', fileId, { ...file, ownerId: newOwnerId });
+        console.log('[Gun.js] Transferred ownership of', fileId, 'to', newOwnerId);
+    }
+
+    /**
+     * Check if a user owns a file
+     */
+    async isFileOwner(fileId: string, ownerId: string): Promise<boolean> {
+        const file = await this.getFile(fileId);
+        if (!file) return false;
+        
+        // If no owner set, check device ID for backward compatibility
+        if (!file.ownerId) {
+            return file.deviceId === this.deviceId;
+        }
+        
+        return file.ownerId === ownerId;
     }
 }

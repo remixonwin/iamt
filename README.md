@@ -1,6 +1,6 @@
 # IAMT - Decentralized P2P File Storage
 
-A **fully local, peer-to-peer** file storage app with torrent-like file sharing and **client-side encryption**.
+A **fully local, peer-to-peer** file storage app with torrent-like file sharing, **client-side encryption**, and **decentralized identity**.
 
 ## ✨ Features
 
@@ -10,6 +10,9 @@ A **fully local, peer-to-peer** file storage app with torrent-like file sharing 
 - 🌐 **P2P Sharing** - WebTorrent-based decentralized storage
 - 🔄 **Real-time Sync** - Gun.js for metadata synchronization
 - 📱 **Cross-device** - Access from any device with tunneling
+- 👤 **Decentralized Identity** - Gun.js SEA with did:key format
+- 🔐 **Account Recovery** - 12-word BIP39 seed phrase backup
+- ✉️ **Email Verification** - Magic link email verification
 
 ## 🔐 Security Features
 
@@ -21,6 +24,8 @@ A **fully local, peer-to-peer** file storage app with torrent-like file sharing 
 | Rate Limiting | 50 uploads per 15 minutes |
 | CORS | Restricted origin whitelist |
 | Headers | Helmet security headers |
+| Identity | Gun.js SEA + did:key (decentralized) |
+| Recovery | 12-word BIP39 seed phrase |
 
 ### File Visibility Options
 
@@ -88,9 +93,11 @@ npm run dev
 ## 🔧 Tech Stack
 
 - **Next.js 14** - App framework
-- **Gun.js** - Decentralized database for sync
+- **Gun.js + SEA** - Decentralized database & authentication
 - **WebTorrent** - P2P file sharing
 - **Web Crypto API** - AES-256-GCM encryption
+- **BIP39** - Seed phrase generation
+- **Resend** - Email delivery for magic links
 - **Helmet** - Security headers
 - **Vitest + Playwright** - Testing (86+ tests)
 
@@ -110,12 +117,37 @@ npm run build       # Production build
 ├── storage/         # WebTorrent storage server (hardened)
 │   └── server.js
 ├── src/
-│   ├── adapters/    # Storage & DB adapters
+│   ├── adapters/
+│   │   ├── database/    # Gun.js adapter
+│   │   ├── storage/     # WebTorrent, IndexedDB, Pinata
+│   │   └── identity/    # Gun.js SEA, magic links, did:key
 │   ├── shared/
-│   │   ├── components/  # FileUploader, FileGrid, FilePreview
+│   │   ├── components/  # FileUploader, FileGrid, ProfileCard, etc.
+│   │   ├── contexts/    # AuthContext for authentication
 │   │   └── utils/       # crypto.ts, keyring.ts, fileTypes.ts
-│   └── app/         # Next.js pages
+│   └── app/
+│       ├── auth/        # Login, signup, verify pages
+│       ├── profile/     # User profile dashboard
+│       └── api/         # Magic link email API
 └── tests/           # Unit & integration tests
+\`\`\`
+
+## 👤 User Authentication
+
+IAMT uses **decentralized identity** with Gun.js SEA:
+
+1. **Sign Up** - Create account with email/password
+2. **Seed Phrase** - Receive 12-word BIP39 recovery phrase
+3. **Email Verification** - Verify via magic link
+4. **Profile Dashboard** - View DID, manage recovery settings
+5. **Account Recovery** - Recover with seed phrase or email
+
+### Environment Variables
+
+For email verification, set in \`.env.local\`:
+\`\`\`bash
+RESEND_API_KEY=re_xxxxx
+RESEND_FROM_EMAIL=noreply@yourdomain.com
 \`\`\`
 
 ## 📖 Documentation
