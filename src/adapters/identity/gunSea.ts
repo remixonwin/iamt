@@ -16,11 +16,12 @@ import type { UserProfile, UserKeypair, SignupRequest, LoginRequest, RecoveryReq
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
 // Gun.js relays for production
-// Our custom relay is primary, with public relays as fallback
+// Vercel serverless doesn't support WebSockets, and public relays are flaky.
+// We prioritize a known public relay, but improved error handling will allow
+// the app to function with just localStorage if relays fail.
 const PUBLIC_RELAYS: string[] = [
-    'https://relay-remixonwins-projects.vercel.app/gun',  // Our custom relay
-    'https://gun-manhattan.herokuapp.com/gun',            // Fallback 1
-    'https://gun-matrix.herokuapp.com/gun',               // Fallback 2
+    'https://gun-manhattan.herokuapp.com/gun',
+    // 'https://relay-remixonwins-projects.vercel.app/gun', // Disabled: Vercel doesn't support WSS, causes console spam
 ];
 
 // Determine if running in production
@@ -285,7 +286,13 @@ export class GunSeaAdapter {
         return new Promise((resolve, reject) => {
             this.user.auth(email, password, (ack: { err?: string }) => {
                 if (ack.err) {
-                    reject(new Error(ack.err));
+                    // Check for common Gun.js data corruption error
+                    if (ack.err.includes('Invalid data') || ack.err.includes('Number at')) {
+                        console.error('[GunSEA] Data corruption detected. Clearing local session recommended.');
+                        reject(new Error('Local data corrupted. Please clear your browser cache/cookies for this site and try again.'));
+                    } else {
+                        reject(new Error(ack.err));
+                    }
                 } else {
                     resolve();
                 }
