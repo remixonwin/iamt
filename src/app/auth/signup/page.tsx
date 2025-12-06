@@ -64,6 +64,12 @@ export default function SignupPage() {
 
     const handleContinue = () => {
         router.push('/profile');
+        // Hard fallback in case client-side routing is blocked
+        setTimeout(() => {
+            if (window.location.pathname !== '/profile') {
+                window.location.href = '/profile';
+            }
+        }, 300);
     };
 
     // Show seed phrase backup screen after successful signup
@@ -119,6 +125,7 @@ export default function SignupPage() {
                     </div>
 
                     <button
+                        type="button"
                         onClick={handleContinue}
                         disabled={!seedPhraseSaved}
                         className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"

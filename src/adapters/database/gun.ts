@@ -10,22 +10,42 @@
 'use client';
 
 // Local relay for development
-const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
+const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY;
 
-// Gun.js relays for production
-// Vercel serverless doesn't support WebSockets, so we use a robust public relay
-// and fall back to localStorage if connection fails.
-const PUBLIC_RELAYS: string[] = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-eu.herokuapp.com/gun',
-    'https://gun-us.herokuapp.com/gun'
+// Optional comma-separated list from env
+const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+// Default public relays (non-Heroku, still online)
+const DEFAULT_PUBLIC_RELAYS: string[] = [
+    'https://relay.peer.ooo/gun',
+    'https://relay.gun.eco/gun',
+    'https://relay-us.gundb.io/gun'
 ];
 
 // Determine if running in production (not localhost)
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
 // Always use redundant relays for maximum reliability
-const RELAYS = [PRIMARY_RELAY, ...PUBLIC_RELAYS];
+const RELAYS = Array.from(
+    new Set(
+        [
+            ...(PRIMARY_RELAY ? [PRIMARY_RELAY] : []),
+            ...ENV_RELAYS,
+            ...DEFAULT_PUBLIC_RELAYS,
+        ].filter((url) => {
+            if (!url) return false;
+            // Drop insecure endpoints in production (except localhost for dev tunneling)
+            if (isProduction && url.startsWith('http://') && !url.includes('localhost')) {
+                console.warn('[Gun.js] Skipping insecure relay in production:', url);
+                return false;
+            }
+            return true;
+        })
+    )
+);
 
 // App namespace
 const APP_NAMESPACE = 'iamt-files-v3';
@@ -105,11 +125,13 @@ export class GunDatabaseAdapter {
         try {
             const Gun = (await import('gun')).default;
 
+            const peers = RELAYS.length ? RELAYS : DEFAULT_PUBLIC_RELAYS;
+
             console.log('[Gun.js] Environment:', isProduction ? 'production' : 'development');
-            console.log('[Gun.js] Connecting to relays:', RELAYS);
+            console.log('[Gun.js] Connecting to relays:', peers);
 
             this.gun = Gun({
-                peers: RELAYS,
+                peers,
                 localStorage: true,
             });
 

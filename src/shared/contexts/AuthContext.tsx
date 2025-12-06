@@ -43,6 +43,8 @@ const AuthContext = createContext<AuthContextValue>({
 
 // Storage key for user keypair
 const KEYPAIR_STORAGE_KEY = 'iamt-user-keypair';
+// Storage key for lightweight session snapshot
+const SESSION_STORAGE_KEY = 'iamt-session';
 
 /**
  * Get stored keypair from localStorage
@@ -76,28 +78,74 @@ function clearKeypair(): void {
     }
 }
 
+function getStoredSession(): UserProfile | null {
+    if (typeof window === 'undefined') return null;
+    const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!stored) return null;
+    try {
+        return JSON.parse(stored) as UserProfile;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * AuthProvider component
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [state, setState] = useState<AuthState>(initialState);
-    const [keypair, setKeypair] = useState<UserKeypair | null>(null);
+    // Hydrate immediately from localStorage to avoid redirect flicker on reload
+    const [state, setState] = useState<AuthState>(() => {
+        const storedSession = getStoredSession();
+        if (storedSession) {
+            return {
+                user: storedSession,
+                isAuthenticated: true,
+                isLoading: true, // remain true until adapter confirms
+                error: null,
+            };
+        }
+        return initialState;
+    });
+    const [keypair, setKeypair] = useState<UserKeypair | null>(() => getStoredKeypair());
 
     // Initialize auth state on mount
     useEffect(() => {
         const initAuth = async () => {
             try {
                 const adapter = getGunSeaAdapter();
-                
-                // Wait for adapter to initialize
-                await new Promise(r => setTimeout(r, 100));
-                
-                const user = adapter.getCurrentUser();
                 const storedKeypair = getStoredKeypair();
-                
+                const storedSession = getStoredSession();
+
+                // Optimistically hydrate from stored session to avoid redirect flicker
+                if (storedSession) {
+                    setState({
+                        user: storedSession,
+                        isAuthenticated: true,
+                        isLoading: true, // keep loading until adapter is ready
+                        error: null,
+                    });
+                    setKeypair(storedKeypair);
+                }
+
+                // Wait for adapter to initialize and expose a user; retry a few times
+                let user = adapter.getCurrentUser();
+                for (let i = 0; i < 10 && !user; i++) {
+                    await new Promise(r => setTimeout(r, 150));
+                    user = adapter.getCurrentUser();
+                }
+
                 if (user && adapter.isAuthenticated()) {
                     setState({
                         user,
+                        isAuthenticated: true,
+                        isLoading: false,
+                        error: null,
+                    });
+                    setKeypair(storedKeypair);
+                } else if (storedSession) {
+                    // Fall back to stored session if adapter never surfaced a user yet
+                    setState({
+                        user: storedSession,
                         isAuthenticated: true,
                         isLoading: false,
                         error: null,
@@ -136,12 +184,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             storeKeypair(result.keypair);
             setKeypair(result.keypair);
 
-            setState({
+            setState(prev => ({
+                ...prev,
                 user: result.user,
                 isAuthenticated: true,
                 isLoading: false,
                 error: null,
-            });
+            }));
 
             return { user: result.user, seedPhrase: result.seedPhrase };
         } catch (error) {
@@ -161,12 +210,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const adapter = getGunSeaAdapter();
             const user = await adapter.authenticate(request);
 
-            setState({
+            setState(prev => ({
+                ...prev,
                 user,
                 isAuthenticated: true,
                 isLoading: false,
                 error: null,
-            });
+            }));
 
             return user;
         } catch (error) {

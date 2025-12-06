@@ -2,6 +2,16 @@
 const nextConfig = {
   output: 'standalone', // Optimized for Docker
 
+  async redirects() {
+    return [
+      {
+        source: '/favicon.ico',
+        destination: '/icon.svg',
+        permanent: true,
+      },
+    ];
+  },
+
   // Handle WebTorrent - exclude from SSR bundling
   webpack: (config, { isServer, webpack }) => {
     if (!isServer) {

@@ -12,7 +12,7 @@ export default defineConfig({
     workers: 1, // Serial execution for stability
     reporter: 'html',
     use: {
-        baseURL: 'http://localhost:3000',
+        baseURL: 'http://localhost:3002',
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
     },

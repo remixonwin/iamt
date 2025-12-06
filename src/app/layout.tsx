@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/shared/contexts/AuthContext";
+import { ChunkErrorReload } from "@/shared/components/ChunkErrorReload";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -16,6 +17,9 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "IAMT - Decentralized App",
   description: "A modular, TDD-first decentralized web application",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -32,6 +36,7 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
       >
         <AuthProvider>
+          <ChunkErrorReload />
           {children}
         </AuthProvider>
       </body>

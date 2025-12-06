@@ -432,7 +432,8 @@ export class GunSeaAdapter {
      * Check if user is authenticated
      */
     isAuthenticated(): boolean {
-        return this.user?.is?.pub !== undefined;
+        // trust local session if available
+        return this.currentProfile !== null || (this.user?.is?.pub !== undefined);
     }
 
     /**
