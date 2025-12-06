@@ -100,8 +100,8 @@ export class GunDatabaseAdapter {
         const Gun = (await import('gun')).default;
 
         console.log('[GunSEA] Initializing with relay:', PRIMARY_RELAY);
-        console.log('[GunSEA] Fallback relays:', FALLBACK_RELAYS);
-        console.log('[GunSEA] All relays:', RELAYS);
+        console.log('[GunSEA] Public relays:', PUBLIC_RELAYS);
+        console.log('[GunSEA] All configured relays:', RELAYS);
 
         this.gun = Gun({
             peers: RELAYS,
