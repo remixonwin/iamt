@@ -155,6 +155,26 @@ RESEND_FROM_EMAIL=noreply@yourdomain.com
 - [Security Implementation](./SECURITY_IMPLEMENTATION.md) - Technical details
 - [Privacy Guide](./PRIVACY_GUIDE.md) - User guide for encryption
 
+## 🔧 Troubleshooting
+
+### Files not appearing in "My Files"
+If uploaded files don't appear in "My Files":
+1. Check browser console for errors
+2. File metadata is saved to localStorage as backup - should work even if Gun.js relay is down
+3. Ensure the storage server is running: `cd storage && npm start`
+4. Refresh the page to reload from localStorage backup
+
+### CORS Errors
+If you see CORS errors when uploading:
+1. Ensure the storage server allows your origin in `ALLOWED_ORIGINS`
+2. Port 3002 is included by default for Next.js dev server
+3. The storage server must be running before the frontend
+
+### Gun.js Connection Issues
+- The relay server (`port 8765`) enables real-time sync across devices
+- Without the relay, files are stored locally via localStorage backup
+- Start the relay: `cd relay && npm start`
+
 ## License
 
 MIT

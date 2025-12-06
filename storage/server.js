@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 3001;
 const FILES_DIR = path.join(__dirname, 'files');
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:8765'];
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:8765'];
 
 // Ensure files directory exists
 if (!fs.existsSync(FILES_DIR)) {
@@ -45,26 +45,35 @@ const filePaths = new Map(); // InfoHash -> Array of disk paths (for duplicates)
 
 const app = express();
 
-// Security middleware
-app.use(helmet()); // Add security headers
-
-// CORS configuration
+// CORS configuration - must come BEFORE helmet
 app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, etc)
-        if (!origin || ALLOWED_ORIGINS.includes(origin) || origin.endsWith('.vercel.app')) {
-            callback(null, true);
-        } else {
-            callback(new Error(`CORS not allowed for origin: ${origin}`));
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+
+        // Check allowed origins
+        if (ALLOWED_ORIGINS.indexOf(origin) !== -1 || origin.endsWith('.vercel.app')) {
+            return callback(null, true);
         }
+
+        return callback(new Error('CORS not allowed'), false);
     },
     credentials: true,
-    methods: ['GET', 'POST', 'DELETE', 'HEAD'],
+    methods: ['GET', 'POST', 'DELETE', 'HEAD', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
     maxAge: 86400 // 24 hours
 }));
 
+// Security middleware - configured to not block CORS
+app.use(helmet({
+    crossOriginResourcePolicy: false,  // Allow cross-origin resource access
+    crossOriginOpenerPolicy: false,    // Don't restrict opener policy
+    crossOriginEmbedderPolicy: false,  // Don't require COEP
+}));
+
 app.use(express.json());
+
 
 // Rate limiting
 const uploadLimiter = rateLimit({

@@ -44,12 +44,39 @@ export default function Home() {
         const db = dbRef.current;
         const keyring = getKeyring();
 
-        // Subscribe to Gun.js for sync
+        // Load from localStorage backup IMMEDIATELY (works even without relay)
+        const backupFiles = db.loadFromLocalBackup();
+        if (Object.keys(backupFiles).length > 0) {
+          console.log('[Page] Loading files from localStorage backup:', Object.keys(backupFiles).length);
+          const filesFromBackup: StoredFile[] = await Promise.all(
+            Object.values(backupFiles)
+              .filter((meta) => meta && meta.id)
+              .map(async (meta) => ({
+                id: meta.id,
+                name: meta.name,
+                size: meta.size,
+                type: meta.originalType || meta.type,
+                uploadedAt: meta.createdAt,
+                deviceId: meta.deviceId,
+                magnetURI: (meta as GunFileMetadata & { magnetURI?: string }).magnetURI,
+                visibility: meta.visibility || 'public',
+                encrypted: meta.encrypted || false,
+                canDecrypt: meta.encrypted ? await keyring.hasKey(meta.id) : true,
+              }))
+          );
+          setStoredFiles(filesFromBackup);
+          setIsLoading(false);
+        }
+
+        // Subscribe to Gun.js for sync (merges with localStorage data)
         const unsubscribe = db.subscribe<GunFileMetadata & { magnetURI?: string }>('files', async (syncedFiles) => {
           setSyncStatus('synced');
 
+          // Merge Gun.js data with localStorage backup
+          const mergedFiles = { ...backupFiles, ...syncedFiles };
+
           const files: StoredFile[] = await Promise.all(
-            Object.values(syncedFiles)
+            Object.values(mergedFiles)
               .filter((meta) => meta && meta.id)
               .map(async (meta) => {
                 // Check if we can decrypt this file
@@ -62,7 +89,7 @@ export default function Home() {
                   type: meta.originalType || meta.type,
                   uploadedAt: meta.createdAt,
                   deviceId: meta.deviceId,
-                  magnetURI: meta.magnetURI,
+                  magnetURI: (meta as GunFileMetadata & { magnetURI?: string }).magnetURI,
                   visibility: meta.visibility || 'public',
                   encrypted: meta.encrypted || false,
                   canDecrypt,
@@ -151,6 +178,8 @@ export default function Home() {
 
       if (db) {
         await db.set('files', result.cid, metadata);
+      } else {
+        console.warn('[Upload] Database not initialized - file metadata may not persist across sessions');
       }
 
       setStoredFiles((prev) => [...prev, {

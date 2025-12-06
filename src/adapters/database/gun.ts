@@ -3,6 +3,8 @@
  * 
  * Uses public Gun.js relays in production since Vercel serverless
  * doesn't support WebSocket connections.
+ * 
+ * Added: localStorage backup for offline persistence
  */
 
 'use client';
@@ -10,11 +12,10 @@
 // Local relay for development
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
 
-// Working public Gun.js relays for production
-// Note: Vercel serverless functions don't support WebSockets, so we must use external relays
+// Working public Gun.js relays (confirmed active 2024-2025)
 const PUBLIC_RELAYS: string[] = [
-    'https://gun-relay.meething.space/gun',
-    'https://peer.wallie.io/gun',
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-matrix.herokuapp.com/gun',
 ];
 
 // Determine if running in production (not localhost)
@@ -28,6 +29,9 @@ const RELAYS = isProduction
 
 // App namespace
 const APP_NAMESPACE = 'iamt-files-v3';
+
+// LocalStorage key for backup persistence
+const LOCALSTORAGE_BACKUP_KEY = 'iamt-files-backup';
 
 /**
  * File Visibility Options
@@ -153,38 +157,81 @@ export class GunDatabaseAdapter {
     }
 
     async set<T extends object>(path: string, key: string, value: T): Promise<void> {
+        // ALWAYS save to localStorage backup FIRST (before any async operations)
+        // This ensures persistence even when Gun.js fails or the relay is down
+        if (path === 'files') {
+            this.saveToLocalBackup(key, value as unknown as GunFileMetadata);
+        }
+
         const gun = await this.ensureGun();
         if (!gun) {
-            console.error('[Gun.js] Set failed: Gun not initialized');
+            console.warn('[Gun.js] Gun not initialized - data saved to localStorage backup only');
             return;
         }
 
-        console.log('[Gun.js] Attempting to set:', { path, key, valueKeys: Object.keys(value) });
-
         return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.error('[Gun.js] Set timeout for key:', key);
+                console.warn('[Gun.js] Set timeout for key:', key);
                 resolve();
             }, 5000);
 
             gun.get(APP_NAMESPACE).get(path).get(key).put(value, (ack: { err?: string; ok?: number }) => {
                 clearTimeout(timeout);
                 if (ack.err) {
-                    console.error('[Gun.js] Set error:', { key, error: ack.err });
-                } else {
-                    console.log('[Gun.js] Set success:', { key, ack });
-
-                    // Verify localStorage
-                    try {
-                        const lsKeys = Object.keys(localStorage).filter(k => k.includes('gun') || k.includes(APP_NAMESPACE));
-                        console.log('[Gun.js] LocalStorage keys after set:', lsKeys.length);
-                    } catch (e) {
-                        console.error('[Gun.js] LocalStorage check failed:', e);
-                    }
+                    console.warn('[Gun.js] Set error:', { key, error: ack.err });
                 }
                 resolve();
             });
         });
+    }
+
+    /**
+     * Save file metadata to localStorage backup
+     */
+    private saveToLocalBackup(fileId: string, metadata: GunFileMetadata): void {
+        try {
+            const existing = localStorage.getItem(LOCALSTORAGE_BACKUP_KEY);
+            const files: Record<string, GunFileMetadata> = existing ? JSON.parse(existing) : {};
+            files[fileId] = metadata;
+            localStorage.setItem(LOCALSTORAGE_BACKUP_KEY, JSON.stringify(files));
+            console.log('[Gun.js] Saved to localStorage backup:', fileId);
+        } catch (e) {
+            console.error('[Gun.js] Failed to save to localStorage backup:', e);
+        }
+    }
+
+    /**
+     * Load files from localStorage backup (fallback when Gun.js fails)
+     */
+    loadFromLocalBackup(): Record<string, GunFileMetadata> {
+        try {
+            const stored = localStorage.getItem(LOCALSTORAGE_BACKUP_KEY);
+            if (stored) {
+                const files = JSON.parse(stored);
+                console.log('[Gun.js] Loaded from localStorage backup:', Object.keys(files).length, 'files');
+                return files;
+            }
+        } catch (e) {
+            console.error('[Gun.js] Failed to load from localStorage backup:', e);
+        }
+        return {};
+    }
+
+    /**
+     * Delete from localStorage backup
+     */
+    private deleteFromLocalBackup(fileId: string): void {
+        try {
+            const existing = localStorage.getItem(LOCALSTORAGE_BACKUP_KEY);
+            if (existing) {
+                const files: Record<string, GunFileMetadata> = JSON.parse(existing);
+                delete files[fileId];
+                localStorage.setItem(LOCALSTORAGE_BACKUP_KEY, JSON.stringify(files));
+                console.log('[Gun.js] Deleted from localStorage backup:', fileId);
+            }
+        } catch (e) {
+            console.error('[Gun.js] Failed to delete from localStorage backup:', e);
+        }
     }
 
     subscribe<T>(
