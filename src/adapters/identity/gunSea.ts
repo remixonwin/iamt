@@ -14,6 +14,19 @@ import type { UserProfile, UserKeypair, SignupRequest, LoginRequest, RecoveryReq
 
 // Gun.js relay configuration
 const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY || 'http://localhost:8765/gun';
+
+// Working public Gun.js relays for production
+const PUBLIC_RELAYS: string[] = [
+    'https://gun-relay.meething.space/gun',
+    'https://peer.wallie.io/gun',
+];
+
+// Determine if running in production
+const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
+const RELAYS = isProduction && PRIMARY_RELAY.includes('localhost')
+    ? PUBLIC_RELAYS
+    : [PRIMARY_RELAY];
+
 const APP_NAMESPACE = 'iamt-identity-v1';
 
 // Session storage key
@@ -170,8 +183,9 @@ export class GunSeaAdapter {
         const Gun = (await import('gun')).default;
         await import('gun/sea');
 
+        console.log('[GunSEA] Connecting to relays:', RELAYS);
         this.gun = Gun({
-            peers: [PRIMARY_RELAY],
+            peers: RELAYS,
             localStorage: true,
         });
 
