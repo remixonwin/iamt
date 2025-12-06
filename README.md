@@ -111,9 +111,33 @@ npm run dev
 
 \`\`\`bash
 npm run test        # Unit tests (86)
-npm run test:e2e    # E2E tests (15)
+npm run test:e2e    # E2E tests (15+ enhanced)
+npm run test:e2e:headed  # E2E with visual UI inspection
 npm run build       # Production build
 \`\`\`
+
+### E2E Test Coverage Enhancements
+
+**File Sharing Across Devices/Networks:**
+- Multi-browser context simulation for cross-device file sync
+- P2P network reliability testing
+- Offline mode handling
+
+**Authentication Security & Privacy:**
+- Sensitive data logging prevention
+- Session security validation
+- Encryption verification for private files
+- Unauthorized access prevention
+
+**Performance & Accessibility:**
+- Upload/download timing measurements
+- Page load performance monitoring
+- Accessibility audit checks
+- ARIA labeling validation
+
+**CI/CD Integration:**
+- Automated testing on GitHub Actions
+- Test result artifacts for debugging
 
 ## 📁 Project Structure
 

@@ -212,8 +212,13 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
         }
 
         // Attach listeners
-        torrent.on('done', onDone);
-        torrent.on('error', onError);
+        if (torrent && typeof torrent.on === 'function') {
+            torrent.on('done', onDone);
+            torrent.on('error', onError);
+        } else {
+            reject(new Error('Invalid torrent object'));
+            return;
+        }
 
         // Timeout 15s
         timeoutId = setTimeout(() => {

@@ -285,21 +285,25 @@ export class GunDatabaseAdapter {
             ref = gun.get(APP_NAMESPACE).get(path).map();
 
             ref.on((item: T & { _?: unknown } | null, key: string) => {
-                if (!key || key === '_') return;
+                try {
+                    if (!key || key === '_') return;
 
-                if (item === null) {
-                    delete data[key];
-                } else if (item) {
-                    const cleanItem = { ...item };
-                    delete cleanItem._;
-                    data[key] = cleanItem as T;
+                    if (item === null) {
+                        delete data[key];
+                    } else if (item) {
+                        const cleanItem = { ...item };
+                        delete cleanItem._;
+                        data[key] = cleanItem as T;
+                    }
+
+                    clearTimeout(debounceTimeout);
+                    debounceTimeout = setTimeout(() => {
+                        console.log('[Gun.js] Sync:', Object.keys(data).length, 'files');
+                        callback({ ...data });
+                    }, 100);
+                } catch (err) {
+                    console.error('[Gun.js] Error processing item:', key, err);
                 }
-
-                clearTimeout(debounceTimeout);
-                debounceTimeout = setTimeout(() => {
-                    console.log('[Gun.js] Sync:', Object.keys(data).length, 'files');
-                    callback({ ...data });
-                }, 100);
             });
         }).catch(err => {
             console.error('[Gun.js] Subscribe failed:', err);
@@ -421,8 +425,11 @@ export class GunDatabaseAdapter {
      * Save a file to the User's Graph (Private/Personal Storage)
      * This ensures the file is synced to the user's account across devices
      */
-    async saveUserFile(file: GunFileMetadata, user: any): Promise<void> {
+    async saveUserFile(file: GunFileMetadata, user: any, userId: string): Promise<void> {
         if (!user || !user.is) throw new Error('User not authenticated');
+
+        // Save to user-specific localStorage backup FIRST
+        this.saveToUserBackup(file.id, file, userId);
 
         return new Promise((resolve, reject) => {
             // Save to user's 'files' graph
@@ -463,5 +470,99 @@ export class GunDatabaseAdapter {
                 resolve(Object.values(files));
             }, 1000);
         });
+    }
+
+    /**
+     * Subscribe to the User's file graph for real-time cross-device sync
+     */
+    subscribeUserFiles(
+        user: any,
+        callback: (data: Record<string, GunFileMetadata>) => void
+    ): () => void {
+        if (!user || !user.is) {
+            console.warn('[Gun.js] Cannot subscribe to user files - not authenticated');
+            return () => { };
+        }
+
+        const data: Record<string, GunFileMetadata> = {};
+        let debounceTimeout: NodeJS.Timeout;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ref = user.get(APP_NAMESPACE).get('files').map();
+
+        ref.on((item: GunFileMetadata & { _?: unknown } | null, key: string) => {
+            if (!key || key === '_') return;
+
+            if (item === null) {
+                delete data[key];
+            } else if (item) {
+                const cleanItem = { ...item };
+                delete cleanItem._;
+                data[key] = cleanItem as GunFileMetadata;
+            }
+
+            clearTimeout(debounceTimeout);
+            debounceTimeout = setTimeout(() => {
+                console.log('[Gun.js] User files sync:', Object.keys(data).length, 'files');
+                callback({ ...data });
+            }, 100);
+        });
+
+        return () => {
+            ref.off();
+            clearTimeout(debounceTimeout);
+        };
+    }
+
+    /**
+     * Save file metadata to user-specific localStorage backup
+     * Keyed by user ID for cross-device sync
+     */
+    private saveToUserBackup(fileId: string, metadata: GunFileMetadata, userId: string): void {
+        try {
+            const backupKey = `iamt-user-files-${userId}`;
+            const existing = localStorage.getItem(backupKey);
+            const files: Record<string, GunFileMetadata> = existing ? JSON.parse(existing) : {};
+            files[fileId] = metadata;
+            localStorage.setItem(backupKey, JSON.stringify(files));
+            console.log('[Gun.js] Saved to user localStorage backup:', fileId);
+        } catch (e) {
+            console.error('[Gun.js] Failed to save to user localStorage backup:', e);
+        }
+    }
+
+    /**
+     * Load files from user-specific localStorage backup
+     */
+    loadUserFilesBackup(userId: string): Record<string, GunFileMetadata> {
+        try {
+            const backupKey = `iamt-user-files-${userId}`;
+            const stored = localStorage.getItem(backupKey);
+            if (stored) {
+                const files = JSON.parse(stored);
+                console.log('[Gun.js] Loaded from user localStorage backup:', Object.keys(files).length, 'files');
+                return files;
+            }
+        } catch (e) {
+            console.error('[Gun.js] Failed to load from user localStorage backup:', e);
+        }
+        return {};
+    }
+
+    /**
+     * Delete from user-specific localStorage backup
+     */
+    deleteFromUserBackup(fileId: string, userId: string): void {
+        try {
+            const backupKey = `iamt-user-files-${userId}`;
+            const existing = localStorage.getItem(backupKey);
+            if (existing) {
+                const files: Record<string, GunFileMetadata> = JSON.parse(existing);
+                delete files[fileId];
+                localStorage.setItem(backupKey, JSON.stringify(files));
+                console.log('[Gun.js] Deleted from user localStorage backup:', fileId);
+            }
+        } catch (e) {
+            console.error('[Gun.js] Failed to delete from user localStorage backup:', e);
+        }
     }
 }

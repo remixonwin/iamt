@@ -39,6 +39,7 @@ const AuthContext = createContext<AuthContextValue>({
     recoverWithSeedPhrase: async () => { throw new Error('AuthProvider not mounted'); },
     updateProfile: async () => { throw new Error('AuthProvider not mounted'); },
     getSeedPhrase: async () => { throw new Error('AuthProvider not mounted'); },
+    gunUser: null,
 });
 
 // Storage key for user keypair
@@ -107,6 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return initialState;
     });
     const [keypair, setKeypair] = useState<UserKeypair | null>(() => getStoredKeypair());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [gunUser, setGunUser] = useState<any>(null);
 
     // Initialize auth state on mount
     useEffect(() => {
@@ -141,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         error: null,
                     });
                     setKeypair(storedKeypair);
+                    setGunUser(adapter.getUser());
                 } else if (storedSession) {
                     // Fall back to stored session if adapter never surfaced a user yet
                     setState({
@@ -150,11 +154,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         error: null,
                     });
                     setKeypair(storedKeypair);
+                    setGunUser(adapter.getUser());
                 } else {
                     setState({
                         ...initialState,
                         isLoading: false,
                     });
+                    setGunUser(null);
                 }
             } catch (error) {
                 console.error('[Auth] Init error:', error);
@@ -182,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Store keypair locally
             storeKeypair(result.keypair);
             setKeypair(result.keypair);
+            setGunUser(adapter.getUser());
 
             setState(prev => ({
                 ...prev,
@@ -216,6 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 isLoading: false,
                 error: null,
             }));
+            setGunUser(adapter.getUser());
 
             return user;
         } catch (error) {
@@ -234,6 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await adapter.signOut();
             clearKeypair();
             setKeypair(null);
+            setGunUser(null);
 
             setState({
                 user: null,
@@ -379,6 +388,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         recoverWithSeedPhrase,
         updateProfile,
         getSeedPhrase,
+        gunUser,
     };
 
     return (

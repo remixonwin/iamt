@@ -62,3 +62,64 @@ test.describe('User Registration', () => {
         await expect(emailInput).toHaveAttribute('required', '');
     });
 });
+
+test.describe('Authentication Security', () => {
+    test('should not log sensitive information', async ({ page }) => {
+        const logs: string[] = [];
+        page.on('console', msg => {
+            logs.push(msg.text());
+        });
+
+        await page.goto('/auth/signup');
+        await page.locator('#email').fill('test@example.com');
+        await page.locator('#password').fill('Password123!');
+        await page.getByRole('button', { name: /create account/i }).click();
+
+        // Check logs don't contain passwords or keys
+        for (const log of logs) {
+            expect(log).not.toContain('Password123!');
+            expect(log.toLowerCase()).not.toContain('password');
+            expect(log.toLowerCase()).not.toContain('key');
+        }
+    });
+
+    test('should handle session securely after logout', async ({ page }) => {
+        // First, register and login
+        const uniqueSuffix = Date.now().toString();
+        const email = `security${uniqueSuffix}@example.com`;
+        const password = 'SecurePass123!';
+
+        await page.goto('/auth/signup');
+        await page.locator('#displayName').fill('Security Test');
+        await page.locator('#email').fill(email);
+        await page.locator('#password').fill(password);
+        await page.locator('#confirmPassword').fill(password);
+        await page.getByRole('button', { name: /create account/i }).click();
+
+        await page.getByRole('checkbox').check();
+        await page.getByRole('button', { name: /continue to profile/i }).click();
+        await expect(page).toHaveURL('/profile');
+
+        // Assume there's a logout button; if not, this test needs adjustment
+        // For now, check that sensitive data isn't in localStorage
+        const localStorage = await page.evaluate(() => {
+            const items: Record<string, string> = {};
+            for (let i = 0; i < window.localStorage.length; i++) {
+                const key = window.localStorage.key(i);
+                if (key) items[key] = window.localStorage.getItem(key) || '';
+            }
+            return items;
+        });
+
+        // Ensure no plain text passwords in localStorage
+        for (const value of Object.values(localStorage)) {
+            expect(value).not.toContain(password);
+        }
+    });
+
+    test('should prevent unauthorized access to profile', async ({ page }) => {
+        await page.goto('/profile');
+        // Should redirect to login if not authenticated
+        await expect(page).toHaveURL(/\/auth\//, { timeout: 10000 });
+    });
+});

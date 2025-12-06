@@ -31,7 +31,7 @@ interface StoredFile {
 }
 
 export default function Home() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, gunUser } = useAuth();
   const [uploadQueue, setUploadQueue] = useState<UploadedFile[]>([]);
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'public' | 'my-files'>('upload');
@@ -51,13 +51,17 @@ export default function Home() {
         // Load from localStorage backup IMMEDIATELY (works even without relay)
         const backupFiles = db.loadFromLocalBackup();
 
+        // Also load user-specific files if authenticated
+        const userBackupFiles = user?.did ? db.loadUserFilesBackup(user.did) : {};
+        const allBackupFiles = { ...backupFiles, ...userBackupFiles };
+
         let initialFiles: StoredFile[] = [];
 
         // 1. Load Local Backup
-        if (Object.keys(backupFiles).length > 0) {
-          console.log('[Page] Loading files from localStorage backup:', Object.keys(backupFiles).length);
+        if (Object.keys(allBackupFiles).length > 0) {
+          console.log('[Page] Loading files from localStorage backup:', Object.keys(allBackupFiles).length);
           const filesFromBackup: StoredFile[] = await Promise.all(
-            Object.values(backupFiles)
+            Object.values(allBackupFiles)
               .filter((meta) => meta && meta.id)
               .map(async (meta) => ({
                 id: meta.id,
@@ -66,6 +70,7 @@ export default function Home() {
                 type: meta.originalType || meta.type,
                 uploadedAt: meta.createdAt,
                 deviceId: meta.deviceId,
+                ownerId: meta.ownerId,
                 magnetURI: (meta as GunFileMetadata & { magnetURI?: string }).magnetURI,
                 visibility: meta.visibility || 'public',
                 encrypted: meta.encrypted || false,
@@ -77,33 +82,46 @@ export default function Home() {
           setIsLoading(false);
         }
 
-        // 2. Load User Graph (if authenticated) - Merges with backup
-        if (isAuthenticated && user) {
-          // Access underlying Gun user instance via adapter if needed, 
-          // but here we assume the DB adapter can handle it if we pass the user object (?)
-          // Actually, db.getUserFiles expects the raw gun user object.
-          // We need to access it from AuthContext or GunSeaAdapter? 
-          // Best to use the adapter's methods if possible or update AuthContext to expose gun user.
-          // For now, let's skip direct Gun User Graph read here and rely on sync updates 
-          // OR implemented getUserFiles in GunDatabaseAdapter BUT we need the user reference.
+        // 2. Subscribe to User's personal file graph for cross-device sync
+        let unsubscribeUser = () => { };
+        if (isAuthenticated && user && gunUser) {
+          console.log('[Page] Subscribing to user file graph for cross-device sync');
+          unsubscribeUser = db.subscribeUserFiles(gunUser, async (userFiles) => {
+            console.log('[Page] User files synced:', Object.keys(userFiles).length);
 
-          // WORKAROUND: We will trigger a specific load based on ownership
-          // Ideally we should update GunDatabaseAdapter to accept the profile/user context.
+            // Merge with current files, prioritizing user graph data
+            setStoredFiles((prev) => {
+              const existingIds = new Set(prev.map(f => f.id));
+              const newUserFiles = Object.values(userFiles)
+                .filter((meta) => meta && meta.id && !existingIds.has(meta.id))
+                .map((meta) => ({
+                  id: meta.id,
+                  name: meta.name,
+                  size: meta.size,
+                  type: meta.originalType || meta.type,
+                  uploadedAt: meta.createdAt,
+                  deviceId: meta.deviceId,
+                  ownerId: meta.ownerId,
+                  magnetURI: (meta as GunFileMetadata & { magnetURI?: string }).magnetURI,
+                  visibility: meta.visibility || 'public',
+                  encrypted: meta.encrypted || false,
+                  canDecrypt: true, // Will check async when rendering
+                }));
+              return [...prev, ...newUserFiles];
+            });
+          });
         }
 
-        // Subscribe to Gun.js for sync (merges with localStorage data)
+        // 3. Subscribe to Gun.js global graph for public files
         const unsubscribe = db.subscribe<GunFileMetadata & { magnetURI?: string }>('files', async (syncedFiles) => {
           setSyncStatus('synced');
 
           // Merge Gun.js data with localStorage backup
-          const mergedFiles = { ...backupFiles, ...syncedFiles };
+          const mergedFiles = { ...allBackupFiles, ...syncedFiles };
 
           const files: StoredFile[] = await Promise.all(
             Object.values(mergedFiles)
               .filter((meta) => meta && meta.id)
-              // Filter by ownership if we want strict privacy, 
-              // BUT for P2P we often want to see everything public.
-              // "My Files" tab should filter by owner. Main grid shows all?
               .map(async (meta) => {
                 // Check if we can decrypt this file
                 const canDecrypt = meta.encrypted ? await keyring.hasKey(meta.id) : true;
@@ -115,6 +133,7 @@ export default function Home() {
                   type: meta.originalType || meta.type,
                   uploadedAt: meta.createdAt,
                   deviceId: meta.deviceId,
+                  ownerId: meta.ownerId,
                   magnetURI: (meta as GunFileMetadata & { magnetURI?: string }).magnetURI,
                   visibility: meta.visibility || 'public',
                   encrypted: meta.encrypted || false,
@@ -131,7 +150,10 @@ export default function Home() {
           setIsLoading(false);
         }, 1500);
 
-        return () => unsubscribe();
+        return () => {
+          unsubscribe();
+          unsubscribeUser();
+        };
       } catch (err) {
         console.error('Initialization failed:', err);
         // Fallback so app still loads
@@ -141,12 +163,12 @@ export default function Home() {
     }
 
     init();
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, gunUser]);
 
   const handleFilesSelected = useCallback((files: UploadedFile[]) => {
     setUploadQueue((prev) => [...prev, ...files]);
     files.forEach((uploadedFile) => uploadFile(uploadedFile));
-  }, [isAuthenticated, user]); // Add dependencies
+  }, [isAuthenticated, user, gunUser]); // Add dependencies
 
   const uploadFile = async (uploadedFile: UploadedFile) => {
     const { id, file, visibility, password } = uploadedFile;
@@ -204,17 +226,12 @@ export default function Home() {
       }
 
       if (db) {
-        // If authenticated, also save to User Graph for cross-device sync
-        if (isAuthenticated && user) {
-          // We need access to the Gun SEA user instance. 
-          // In a real implementation we would pass the Gun user object to `db.saveUserFile`
-          // For now, we are saving to the global graph with `ownerId` which works for 
-          // public/discovery, but true private sync needs `user().get('files')`.
-          // The GunDatabaseAdapter needs a way to access the signed-in user instance.
-
-          // Temporary: Save to global graph (classic logic) which now includes ownerId
-          await db.set('files', result.cid, metadata);
+        // If authenticated, save to User Graph for cross-device sync
+        if (isAuthenticated && user && gunUser) {
+          console.log('[Upload] Saving to user graph for cross-device sync');
+          await db.saveUserFile(metadata, gunUser, user.did);
         } else {
+          // Not authenticated - save to device-local global graph only
           await db.set('files', result.cid, metadata);
         }
       } else {

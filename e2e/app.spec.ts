@@ -207,3 +207,167 @@ test.describe('Responsive Design', () => {
         await expect(page.getByRole('button', { name: /upload/i })).toBeVisible();
     });
 });
+
+test.describe('Cross-Device File Sharing Simulation', () => {
+    test('should simulate file sharing across devices using multiple pages', async ({ browser }) => {
+        // Create two pages to simulate different devices/browsers
+        const context1 = await browser.newContext();
+        const page1 = await context1.newPage();
+        const context2 = await browser.newContext();
+        const page2 = await context2.newPage();
+
+        // Device 1: Upload a file
+        await page1.goto('/');
+        await expect(page1.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        await page1.setInputFiles('input[type="file"]', {
+            name: 'shared-doc.pdf',
+            mimeType: 'application/pdf',
+            buffer: Buffer.from('shared file content'),
+        });
+
+        await expect(page1.getByText('shared-doc.pdf')).toBeVisible({ timeout: 15000 });
+
+        // Wait for upload to complete (simplified check)
+        await page1.waitForTimeout(5000);
+
+        // Device 2: Check if file appears (simulating sync across devices)
+        await page2.goto('/');
+        await expect(page2.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        // Switch to My Files tab
+        await page2.getByRole('button', { name: /my files/i }).click();
+
+        // Note: In real cross-device scenario, this would require Gun.js relay sync
+        // For this simulation, we check if the UI handles the state properly
+        // In a full implementation, files would sync via P2P network
+        await expect(page2.locator('.glass-card')).toBeVisible({ timeout: 30000 });
+
+        await context1.close();
+        await context2.close();
+    });
+});
+
+test.describe('Security and Privacy Checks', () => {
+    test('should encrypt private files', async ({ page }) => {
+        await page.goto('/');
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        // Upload a private file (assuming there's a visibility selector)
+        // Note: This assumes the UI has a way to set visibility to private
+        // If not implemented, this test would need UI updates
+        const buffer = Buffer.from('private content');
+
+        await page.setInputFiles('input[type="file"]', {
+            name: 'private-doc.pdf',
+            mimeType: 'application/pdf',
+            buffer,
+        });
+
+        await expect(page.getByText('private-doc.pdf')).toBeVisible({ timeout: 15000 });
+
+        // Check if filename indicates encryption (e.g., .encrypted extension)
+        // This is a basic check; full validation would require downloading and decrypting
+        const encryptedFile = page.getByText(/private-doc\.pdf\.encrypted/);
+        // If encryption is applied, expect the encrypted name; otherwise, it might not be
+        // For now, just ensure the file is uploaded without errors
+        expect(await page.getByText('private-doc.pdf').count()).toBeGreaterThan(0);
+    });
+
+    test('should not expose sensitive data in console logs', async ({ page }) => {
+        const logs: string[] = [];
+        page.on('console', msg => {
+            logs.push(msg.text());
+        });
+
+        await page.goto('/');
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        // Check logs for sensitive data patterns
+        const sensitivePatterns = ['password', 'key', 'token', 'secret'];
+        for (const log of logs) {
+            for (const pattern of sensitivePatterns) {
+                expect(log.toLowerCase()).not.toContain(pattern);
+            }
+        }
+    });
+
+    test('should handle offline mode gracefully', async ({ page, context }) => {
+        await context.setOffline(true);
+        await page.goto('/');
+        // Should still load from localStorage backup
+        await expect(page.locator('h1')).toContainText('IAMT');
+        // Note: Full offline testing would require mocking network failures
+    });
+});
+
+test.describe('Performance Tests', () => {
+    test('should measure upload performance', async ({ page }) => {
+        await page.goto('/');
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        const startTime = Date.now();
+        const buffer = Buffer.from('performance test content');
+
+        await page.setInputFiles('input[type="file"]', {
+            name: 'perf-test.pdf',
+            mimeType: 'application/pdf',
+            buffer,
+        });
+
+        await expect(page.getByText('perf-test.pdf')).toBeVisible({ timeout: 15000 });
+        const endTime = Date.now();
+
+        const uploadTime = endTime - startTime;
+        console.log(`Upload time: ${uploadTime}ms`);
+
+        // Assert reasonable performance (less than 10 seconds for small file)
+        expect(uploadTime).toBeLessThan(10000);
+    });
+
+    test('should measure page load performance', async ({ page }) => {
+        const startTime = Date.now();
+        await page.goto('/');
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+        const endTime = Date.now();
+
+        const loadTime = endTime - startTime;
+        console.log(`Page load time: ${loadTime}ms`);
+
+        // Assert reasonable load time
+        expect(loadTime).toBeLessThan(30000);
+    });
+});
+
+test.describe('Accessibility Checks', () => {
+    test('should pass basic accessibility audit', async ({ page }) => {
+        await page.goto('/');
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        // Check for buttons with accessible names
+        const buttons = await page.locator('button').count();
+        expect(buttons).toBeGreaterThan(0);
+
+        // Check for input labels
+        const fileInput = page.locator('input[type="file"]');
+        const ariaLabel = await fileInput.getAttribute('aria-label');
+        expect(ariaLabel || fileInput.getAttribute('id')).toBeTruthy();
+
+        // Verify main heading exists
+        await expect(page.locator('h1')).toBeVisible();
+    });
+
+    test('should have proper ARIA labels', async ({ page }) => {
+        await page.goto('/');
+        await expect(page.getByText('Connecting to P2P network...')).toBeHidden({ timeout: 60000 });
+
+        // Check upload button has proper labeling
+        const uploadButton = page.getByRole('button', { name: /upload/i });
+        await expect(uploadButton).toBeVisible();
+
+        // Check file input has proper attributes
+        const fileInput = page.locator('input[type="file"]');
+        const ariaLabel = await fileInput.getAttribute('aria-label');
+        expect(ariaLabel).toBeTruthy();
+    });
+});

@@ -519,7 +519,12 @@ export class GunSeaAdapter {
                 .get(APP_NAMESPACE)
                 .get('profile')
                 .once((data: RawUserProfile | null) => {
-                    resolve(data ? sanitizeUserProfile(data) : null);
+                    try {
+                        resolve(data ? sanitizeUserProfile(data) : null);
+                    } catch (err) {
+                        console.error('[GunSEA] Error loading profile:', err);
+                        resolve(null);
+                    }
                 });
         });
     }
@@ -625,6 +630,15 @@ export class GunSeaAdapter {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getGun(): any {
         return this.gun;
+    }
+
+    /**
+     * Get the authenticated Gun user instance for personal graph operations
+     * This is required for cross-device file sync via user.get('files')
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getUser(): any {
+        return this.user;
     }
 
     /**
