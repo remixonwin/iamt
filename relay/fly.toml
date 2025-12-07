@@ -1,0 +1,18 @@
+# fly.toml - Fly.io configuration for Gun.js relay
+app = "iamt-relay"
+primary_region = "sjc"
+
+[build]
+
+[http_service]
+  internal_port = 8765
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

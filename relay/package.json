@@ -3,13 +3,15 @@
   "version": "1.0.0",
   "description": "Gun.js relay server for IAMT",
   "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node server.js"
   },
-  "keywords": [],
+  "keywords": ["gun", "relay", "websocket"],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.2.1",
