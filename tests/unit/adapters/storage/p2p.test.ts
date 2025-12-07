@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => {
         magnetURI: 'magnet:?xt=urn:btih:test-hash',
         progress: 1,
         files: [{
-            getBlob: vi.fn((cb) => cb(null, new Blob(['content'])))
+            getBlob: vi.fn((cb) => cb(null, new Blob(['content']))),
+            arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(7)),
         }],
         on: vi.fn(),
+        removeListener: vi.fn(), // Required for cleanup
     };
 
     const mockClient = {

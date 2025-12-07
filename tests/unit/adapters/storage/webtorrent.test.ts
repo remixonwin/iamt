@@ -8,6 +8,25 @@ vi.mock('@/adapters/storage/p2p', () => ({
     downloadFileP2P: vi.fn(),
 }));
 
+// Mock crypto utilities to avoid crypto.subtle issues in test environment
+vi.mock('@/shared/utils/crypto', async (importOriginal) => {
+    const actual = await importOriginal() as object;
+    return {
+        ...actual,
+        hashFile: vi.fn().mockResolvedValue('mock-hash-123'),
+        computeBlindedHash: vi.fn().mockResolvedValue('mock-blinded-hash-456'),
+        isCryptoSupported: vi.fn().mockReturnValue(false), // Disable encryption for basic tests
+    };
+});
+
+// Mock contentIndex to avoid IndexedDB dependency
+vi.mock('@/shared/lib/dedup/contentIndex', () => ({
+    getContentIndex: vi.fn().mockReturnValue({
+        lookup: vi.fn().mockResolvedValue(null),
+        store: vi.fn().mockResolvedValue(undefined),
+    }),
+}));
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 

@@ -11,6 +11,8 @@
 import * as bip39 from 'bip39';
 import bs58 from 'bs58';
 import type { UserProfile, UserKeypair, SignupRequest, LoginRequest, RecoveryRequest } from './types';
+import { gunConnection } from '@/adapters/database/gunConnection';
+import { logger, LogCategory } from '@/shared/utils/logger';
 
 type RawUserProfile = UserProfile & { _?: unknown };
 
@@ -27,44 +29,7 @@ function sanitizeUserProfile(profile: RawUserProfile): UserProfile {
     return sanitized as unknown as UserProfile;
 }
 
-// Gun.js relay configuration
-const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY;
-
-// Optional comma-separated list from env
-const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
-    .split(',')
-    .map((url) => url.trim())
-    .filter(Boolean);
-
-// Default public relays (non-Heroku, still online)
-const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'https://relay.peer.ooo/gun',
-    'https://relay.gun.eco/gun',
-    'https://relay-us.gundb.io/gun'
-];
-
-// Determine if running in production
-const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
-
-// Always use redundant relays for maximum reliability
-const RELAYS = Array.from(
-    new Set(
-        [
-            ...(PRIMARY_RELAY ? [PRIMARY_RELAY] : []),
-            ...ENV_RELAYS,
-            ...DEFAULT_PUBLIC_RELAYS,
-        ].filter((url) => {
-            if (!url) return false;
-            // Drop insecure endpoints in production (except localhost for dev tunneling)
-            if (isProduction && url.startsWith('http://') && !url.includes('localhost')) {
-                console.warn('[GunSEA] Skipping insecure relay in production:', url);
-                return false;
-            }
-            return true;
-        })
-    )
-);
-
+// App namespace for identity data
 const APP_NAMESPACE = 'iamt-identity-v1';
 
 // Session storage key
@@ -229,41 +194,24 @@ export class GunSeaAdapter {
     }
 
     /**
-     * Initialize Gun.js with SEA
+     * Initialize Gun.js with SEA using shared connection
      */
     private async initGun() {
         if (this.initialized) return;
         this.initialized = true;
 
         try {
-            const Gun = (await import('gun')).default;
-            await import('gun/sea');
+            // Use shared connection manager
+            this.gun = await gunConnection.getGun();
+            this.user = await gunConnection.getUser();
+            this.SEA = await gunConnection.getSEA();
 
-            console.log('[GunSEA] Connecting to relays:', RELAYS);
-            this.gun = Gun({
-                peers: RELAYS,
-                localStorage: true,
-            });
-
-            // Suppress WebSocket connection errors in production
-            if (isProduction) {
-                this.gun.on('error', (err: { message?: string } | Error | null) => {
-                    // Only log critical errors, not connection failures
-                    if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
-                        console.warn('[GunSEA] Error:', err);
-                    }
-                });
-            }
-
-            this.user = this.gun.user();
-            this.SEA = (Gun as { SEA?: unknown }).SEA;
-
-            console.log('[GunSEA] Initialized with relays:', RELAYS);
+            logger.info(LogCategory.GUN_SEA, 'Initialized via shared connection', { relays: gunConnection.getRelays().length });
 
             // Try to restore session
             this.restoreSession();
         } catch (e) {
-            console.error('[GunSEA] Failed to init', e);
+            logger.error(LogCategory.GUN_SEA, 'Failed to init', e);
         } finally {
             if (this.resolveReady) {
                 this.resolveReady();

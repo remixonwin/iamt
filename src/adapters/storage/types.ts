@@ -62,9 +62,11 @@ export interface StorageAdapter {
 
     /**
      * Delete a file from storage (if supported)
+     * Uses reference counting - only deletes from storage when refCount reaches 0.
      * @param cid - Content identifier
+     * @param contentHash - Optional content hash for reference counting
      */
-    delete(cid: string): Promise<void>;
+    delete(cid: string, contentHash?: string): Promise<void>;
 
     /**
      * Check if a file exists in storage
@@ -84,4 +86,8 @@ export interface UploadResult {
     visibility: FileVisibility;
     /** Encryption metadata (for private/password-protected files) */
     encryptionMetadata?: EncryptionMetadata;
+    /** SHA-256 hash of original file content (for deduplication) */
+    contentHash?: string;
+    /** Whether this upload was deduplicated (reused existing storage) */
+    deduplicated?: boolean;
 }

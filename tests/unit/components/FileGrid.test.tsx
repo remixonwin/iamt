@@ -13,7 +13,6 @@ describe('FileGrid', () => {
         render(<FileGrid files={mockFiles} onDelete={() => { }} onPreview={() => { }} />);
         expect(screen.getByText('test1.txt')).toBeInTheDocument();
         expect(screen.getByText('image.png')).toBeInTheDocument();
-        expect(screen.getByText('Public')).toBeInTheDocument();
     });
 
     it('should show empty state when no files', () => {
@@ -33,9 +32,9 @@ describe('FileGrid', () => {
         const onDelete = vi.fn();
         render(<FileGrid files={mockFiles} onDelete={onDelete} onPreview={() => { }} />);
 
-        const deleteButtons = screen.getAllByRole('button');
-        // The first file renders a delete button
-        fireEvent.click(deleteButtons[0]);
+        // Find delete button by aria-label
+        const deleteButton = screen.getByLabelText('Delete test1.txt');
+        fireEvent.click(deleteButton);
         expect(onDelete).toHaveBeenCalledWith('1');
     });
 
@@ -86,7 +85,26 @@ describe('FileGrid', () => {
             visibility: 'private' as const, encrypted: true, canDecrypt: false
         }];
         render(<FileGrid files={file} onDelete={() => { }} onPreview={() => { }} />);
-        expect(screen.getByText("🔒 Can't decrypt")).toBeInTheDocument();
+        expect(screen.getByText('🔒 Locked')).toBeInTheDocument();
+    });
+
+    it('should display uploader info for public files with owner', () => {
+        const file = [{
+            id: 'pub1', name: 'shared.txt', size: 100, type: 'text/plain', uploadedAt: Date.now(),
+            visibility: 'public' as const, ownerId: 'did:key:z123', ownerName: 'Alice'
+        }];
+        render(<FileGrid files={file} onDelete={() => { }} onPreview={() => { }} />);
+        expect(screen.getByText('Alice')).toBeInTheDocument();
+        expect(screen.getByText('Uploader')).toBeInTheDocument();
+    });
+
+    it('should display anonymous indicator for public files without owner', () => {
+        const file = [{
+            id: 'pub2', name: 'anon.txt', size: 100, type: 'text/plain', uploadedAt: Date.now(),
+            visibility: 'public' as const
+        }];
+        render(<FileGrid files={file} onDelete={() => { }} onPreview={() => { }} />);
+        expect(screen.getByText('Anonymous upload')).toBeInTheDocument();
     });
 });
 

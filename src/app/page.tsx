@@ -24,10 +24,15 @@ interface StoredFile {
   uploadedAt: number;
   deviceId?: string;
   ownerId?: string;
+  ownerName?: string;
+  ownerAvatarId?: string;
   // Privacy fields
   visibility: FileVisibility;
   encrypted: boolean;
   canDecrypt?: boolean;
+  // Deduplication fields
+  contentHash?: string;
+  deduplicated?: boolean;
 }
 
 export default function Home() {
@@ -134,6 +139,8 @@ export default function Home() {
                   uploadedAt: meta.createdAt,
                   deviceId: meta.deviceId,
                   ownerId: meta.ownerId,
+                  ownerName: meta.ownerName,
+                  ownerAvatarId: meta.ownerAvatarId,
                   magnetURI: (meta as GunFileMetadata & { magnetURI?: string }).magnetURI,
                   visibility: meta.visibility || 'public',
                   encrypted: meta.encrypted || false,
@@ -214,7 +221,13 @@ export default function Home() {
         visibility: result.visibility,
         encrypted: result.visibility !== 'public',
         originalType: file.type,
-        ownerId: user?.did // Add owner ID if authenticated
+        // Deduplication fields
+        contentHash: result.contentHash,
+        deduplicated: result.deduplicated,
+        // Owner info for attribution
+        ownerId: user?.did,
+        ownerName: user?.displayName || user?.email?.split('@')[0],
+        ownerAvatarId: user?.avatarId,
       };
 
       // Only add encryption metadata if present (Gun.js rejects undefined values)
@@ -253,6 +266,8 @@ export default function Home() {
         visibility: metadata.visibility,
         encrypted: metadata.encrypted,
         canDecrypt: true, // We just uploaded it, so we can decrypt it
+        contentHash: metadata.contentHash,
+        deduplicated: metadata.deduplicated,
       }]);
 
       setTimeout(() => {
@@ -277,7 +292,9 @@ export default function Home() {
   const handleDeleteFile = async (id: string) => {
     const db = dbRef.current;
     try {
-      await storage.delete(id);
+      // Find the file to get its contentHash for reference counting
+      const fileToDelete = storedFiles.find(f => f.id === id);
+      await storage.delete(id, fileToDelete?.contentHash);
       if (db) await db.delete('files', id);
       setStoredFiles((prev) => prev.filter((f) => f.id !== id));
     } catch (error) {

@@ -103,7 +103,8 @@ describe('FileViewer', () => {
         const audioFile = { ...mockFile, type: 'audio/mpeg', name: 'song.mp3' };
         // The audio preview renders a div with music note and separate audio element
         render(<FileViewer file={audioFile} blob={mockBlob} onClose={onClose} />);
-        expect(screen.getByText('song.mp3')).toBeInTheDocument();
+        // Use getAllByText since filename appears in header and audio preview
+        expect(screen.getAllByText('song.mp3').length).toBeGreaterThan(0);
         // Check for audio element
         // Note: screen.getByRole('audio') is not valid.
         const audio = document.querySelector('audio');

@@ -514,3 +514,78 @@ export function terminateCryptoWorker(): void {
         pendingWorkerRequests.clear();
     }
 }
+
+// ============ Blinded Hash Utilities for Deduplication ============
+
+const USER_SECRET_KEY = 'iamt-user-dedup-secret';
+
+/**
+ * Get or create a user-specific secret for blinding content hashes.
+ * This secret ensures each user's blinded hashes are unique, preventing
+ * cross-user correlation attacks on the server.
+ */
+export async function getUserSecret(): Promise<string> {
+    if (typeof window === 'undefined') {
+        // Server-side: return a placeholder (should not be used)
+        return 'server-placeholder';
+    }
+
+    // Check localStorage for existing secret
+    let secret = localStorage.getItem(USER_SECRET_KEY);
+    
+    if (!secret) {
+        // Generate a new 256-bit random secret
+        const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+        secret = arrayBufferToHex(randomBytes.buffer);
+        localStorage.setItem(USER_SECRET_KEY, secret);
+        console.log('[Crypto] Generated new user dedup secret');
+    }
+
+    return secret;
+}
+
+/**
+ * Compute a blinded hash for privacy-preserving server queries.
+ * 
+ * BlindedHash = SHA-256(contentHash + userSecret)
+ * 
+ * This prevents the server from:
+ * - Learning the actual content hash
+ * - Correlating files across different users
+ * - Building a rainbow table of known content hashes
+ * 
+ * @param contentHash - SHA-256 hash of the original file content
+ * @param userSecret - User-specific secret (from getUserSecret())
+ * @returns Hex-encoded blinded hash
+ */
+export async function computeBlindedHash(
+    contentHash: string,
+    userSecret: string
+): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(contentHash + userSecret);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return arrayBufferToHex(hashBuffer);
+}
+
+/**
+ * Compute a password-blinded hash for password-protected file deduplication.
+ * 
+ * BlindedHash = SHA-256(contentHash + password)
+ * 
+ * This enables deduplication across users sharing the same file with the same password,
+ * while different passwords produce different hashes (no dedup = separate storage).
+ * 
+ * @param contentHash - SHA-256 hash of the original file content
+ * @param password - Password used for encryption
+ * @returns Hex-encoded password-blinded hash
+ */
+export async function computePasswordBlindedHash(
+    contentHash: string,
+    password: string
+): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(contentHash + password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return arrayBufferToHex(hashBuffer);
+}

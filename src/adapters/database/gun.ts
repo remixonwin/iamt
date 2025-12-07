@@ -1,9 +1,7 @@
 /**
  * Gun.js Database Adapter
  * 
- * Uses public Gun.js relays in production since Vercel serverless
- * doesn't support WebSocket connections.
- * 
+ * Uses the shared GunConnectionManager for Gun.js operations.
  * Added: localStorage backup for offline persistence
  */
 
@@ -11,44 +9,7 @@
 
 import { logger, LogCategory } from '@/shared/utils/logger';
 import { SYNC_CONFIG } from '@/shared/config';
-
-// Local relay for development
-const PRIMARY_RELAY = process.env.NEXT_PUBLIC_GUN_RELAY;
-
-// Optional comma-separated list from env
-const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
-    .split(',')
-    .map((url) => url.trim())
-    .filter(Boolean);
-
-// Default public relays (tested working ones)
-const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'https://relay.peer.ooo/gun', // Working
-    'https://relay.gun.eco/gun', // Working
-    'https://relay-us.gundb.io/gun' // Working
-];
-
-// Determine if running in production (not localhost)
-const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
-
-// Always use redundant relays for maximum reliability
-const RELAYS = Array.from(
-    new Set(
-        [
-            ...(PRIMARY_RELAY ? [PRIMARY_RELAY] : []),
-            ...ENV_RELAYS,
-            ...DEFAULT_PUBLIC_RELAYS,
-        ].filter((url) => {
-            if (!url) return false;
-            // Drop insecure endpoints in production (except localhost for dev tunneling)
-            if (isProduction && url.startsWith('http://') && !url.includes('localhost')) {
-                logger.warn(LogCategory.GUN, 'Skipping insecure relay in production', url);
-                return false;
-            }
-            return true;
-        })
-    )
-);
+import { gunConnection } from './gunConnection';
 
 // App namespace
 const APP_NAMESPACE = 'iamt-files-v3';
@@ -84,10 +45,18 @@ export interface GunFileMetadata {
     originalType?: string;
     /** File hash for integrity verification */
     fileHash?: string;
+    /** SHA-256 hash of original content for deduplication (stored in user's encrypted graph only) */
+    contentHash?: string;
+    /** Whether this file was deduplicated (reused existing storage) */
+    deduplicated?: boolean;
 
     // Ownership fields
     /** Owner user ID (DID or public key) */
     ownerId?: string;
+    /** Owner display name (for public files) */
+    ownerName?: string;
+    /** Owner avatar file ID */
+    ownerAvatarId?: string;
 }
 
 /**
@@ -108,69 +77,22 @@ function getDeviceId(): string {
  * Gun.js Database Adapter
  */
 export class GunDatabaseAdapter {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private gun: any = null;
     private deviceId: string;
-    private initialized = false;
 
     constructor() {
         this.deviceId = getDeviceId();
 
+        // Ensure connection is initialized
         if (typeof window !== 'undefined') {
-            this.initGun();
+            gunConnection.ensureGun();
         }
     }
 
-    private async initGun() {
-        if (this.initialized) return;
-        this.initialized = true;
-
-        try {
-            const Gun = (await import('gun')).default;
-
-            const peers = RELAYS.length ? RELAYS : DEFAULT_PUBLIC_RELAYS;
-
-            logger.info(LogCategory.GUN, 'Environment', isProduction ? 'production' : 'development');
-            logger.info(LogCategory.GUN, 'Connecting to relays', peers);
-
-            this.gun = Gun({
-                peers,
-                localStorage: true,
-            });
-
-            // Suppress WebSocket connection errors in production
-            if (isProduction) {
-                this.gun.on('error', (err: Error | { message?: string } | null) => {
-                    // Only log critical errors, not connection failures
-                    if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
-                        logger.warn(LogCategory.GUN, 'Connection error', err);
-                    }
-                });
-            }
-
-            logger.debug(LogCategory.GUN, 'LocalStorage enabled', true);
-
-            // Verify localStorage is accessible
-            try {
-                const testKey = `gun-test-${Date.now()}`;
-                localStorage.setItem(testKey, 'test');
-                const retrieved = localStorage.getItem(testKey);
-                localStorage.removeItem(testKey);
-                logger.debug(LogCategory.GUN, 'LocalStorage verified', retrieved === 'test');
-            } catch (e) {
-                logger.error(LogCategory.GUN, 'LocalStorage test failed', e);
-            }
-        } catch (error) {
-            logger.error(LogCategory.GUN, 'Initialization failed', error);
-        }
-    }
-
+    /**
+     * Get the Gun instance from the connection manager
+     */
     private async ensureGun() {
-        if (!this.gun && typeof window !== 'undefined') {
-            await this.initGun();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        return this.gun;
+        return gunConnection.getGun();
     }
 
     async get<T>(path: string): Promise<Record<string, T> | null> {

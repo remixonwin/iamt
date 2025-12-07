@@ -558,6 +558,96 @@ app.delete('/file/:hash', (req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
 
+// ============ Content Deduplication Endpoints ============
+
+// In-memory blinded hash index (in production, use persistent storage like Redis or a DB)
+const blindedHashIndex = new Map(); // blindedHash -> infoHash
+
+/**
+ * Register a blinded hash mapping
+ * POST /register-hash
+ * Body: { blindedHash: string, infoHash: string }
+ * 
+ * Privacy: Server only sees blinded hash (SHA-256(contentHash + userSecret))
+ * Cannot correlate users or derive original content hash.
+ */
+app.post('/register-hash', express.json(), (req, res) => {
+    const { blindedHash, infoHash } = req.body;
+
+    if (!blindedHash || !infoHash) {
+        return res.status(400).json({ error: 'Missing blindedHash or infoHash' });
+    }
+
+    // Validate format (should be 64-char hex strings)
+    if (!/^[a-f0-9]{64}$/i.test(blindedHash)) {
+        return res.status(400).json({ error: 'Invalid blindedHash format' });
+    }
+
+    if (!/^[a-f0-9]{40}$/i.test(infoHash)) {
+        return res.status(400).json({ error: 'Invalid infoHash format' });
+    }
+
+    // Store mapping (only if infoHash actually exists)
+    if (torrents.has(infoHash)) {
+        blindedHashIndex.set(blindedHash, infoHash);
+        console.log(`[Dedup] Registered blinded hash: ${blindedHash.slice(0, 16)}... -> ${infoHash}`);
+        return res.json({ success: true });
+    }
+
+    // If infoHash doesn't exist in our torrents, still store the mapping
+    // (file might exist in MinIO or IPFS backup)
+    blindedHashIndex.set(blindedHash, infoHash);
+    console.log(`[Dedup] Registered blinded hash (pending): ${blindedHash.slice(0, 16)}... -> ${infoHash}`);
+    res.json({ success: true });
+});
+
+/**
+ * Check if a blinded hash exists
+ * GET /check-hash/:blindedHash
+ * 
+ * Returns: { exists: boolean, infoHash?: string }
+ * 
+ * Privacy: Only returns storage ID, no metadata about the file.
+ * Cannot determine what file the hash represents.
+ */
+app.get('/check-hash/:blindedHash', (req, res) => {
+    const { blindedHash } = req.params;
+
+    // Validate format
+    if (!/^[a-f0-9]{64}$/i.test(blindedHash)) {
+        return res.status(400).json({ error: 'Invalid blindedHash format' });
+    }
+
+    const infoHash = blindedHashIndex.get(blindedHash);
+
+    if (infoHash) {
+        // Verify the infoHash still exists
+        const exists = torrents.has(infoHash);
+        
+        if (exists) {
+            console.log(`[Dedup] Hash found: ${blindedHash.slice(0, 16)}... -> ${infoHash}`);
+            return res.json({ exists: true, infoHash });
+        }
+        
+        // Hash registered but torrent no longer exists - clean up
+        blindedHashIndex.delete(blindedHash);
+    }
+
+    console.log(`[Dedup] Hash not found: ${blindedHash.slice(0, 16)}...`);
+    res.json({ exists: false });
+});
+
+/**
+ * Get deduplication statistics
+ * GET /dedup-stats
+ */
+app.get('/dedup-stats', (req, res) => {
+    res.json({
+        registeredHashes: blindedHashIndex.size,
+        activeTorrents: torrents.size,
+    });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error('[Error]', err);
