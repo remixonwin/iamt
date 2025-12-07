@@ -27,11 +27,10 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
 
 // Default public relays (using wss:// for WebSocket connections)
 // Note: Many public relays are unreliable. The app works offline-first with localStorage.
-// For production, consider deploying your own relay using the /relay folder.
-// Testing shows relay.peer.ooo is currently the most reliable
+// Self-hosted relay on Render is the primary, with public relays as fallback
 const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'https://relay.peer.ooo/gun',  // Most reliable - tested working
-    'https://gun-matrix.herokuapp.com/gun',
+    'https://iamt.onrender.com/gun',  // Self-hosted relay (primary)
+    'https://relay.peer.ooo/gun',  // Reliable public relay (backup)
     'https://gun-ams1.madmadi.family/gun'
 ];
 
