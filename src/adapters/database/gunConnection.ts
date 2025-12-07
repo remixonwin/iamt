@@ -28,10 +28,11 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
 // Default public relays (using wss:// for WebSocket connections)
 // Note: Many public relays are unreliable. The app works offline-first with localStorage.
 // For production, consider deploying your own relay using the /relay folder.
+// Testing shows relay.peer.ooo is currently the most reliable
 const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'wss://relay.peer.ooo/gun',
-    'wss://peer.wallie.io/gun',
-    'wss://gundb-relay-mlccl.ondigitalocean.app/gun'
+    'https://relay.peer.ooo/gun',  // Most reliable - tested working
+    'https://gun-matrix.herokuapp.com/gun',
+    'https://gun-ams1.madmadi.family/gun'
 ];
 
 // Default development relay for localhost (when no explicit relay configured)
