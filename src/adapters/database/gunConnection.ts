@@ -32,19 +32,26 @@ const DEFAULT_PUBLIC_RELAYS: string[] = [
     'https://relay-us.gundb.io/gun'
 ];
 
+// Default development relay for localhost (when no explicit relay configured)
+const LOCALHOST_RELAY = 'ws://localhost:8765/gun';
+
 // Determine if running in production
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
-// E2E test mode - skip actual Gun.js initialization
-// Check both process.env and window for runtime detection
-const isE2EMode = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true') ||
-    (typeof window !== 'undefined' && (window as { NEXT_PUBLIC_E2E_MODE?: string }).NEXT_PUBLIC_E2E_MODE === 'true');
+// E2E test mode - check at runtime via getter function
+function getIsE2EMode(): boolean {
+    return process.env.NEXT_PUBLIC_E2E_MODE === 'true';
+}
+
+// Include localhost relay as fallback in development when no primary relay is set
+const shouldIncludeLocalhostRelay = !isProduction && !PRIMARY_RELAY;
 
 // Build relay list with deduplication and security filtering
 const RELAYS = Array.from(
     new Set(
         [
             ...(PRIMARY_RELAY ? [PRIMARY_RELAY] : []),
+            ...(shouldIncludeLocalhostRelay ? [LOCALHOST_RELAY] : []),
             ...ENV_RELAYS,
             ...DEFAULT_PUBLIC_RELAYS,
         ].filter((url) => {
@@ -115,7 +122,7 @@ class GunConnectionManager {
         if (typeof window === 'undefined') return;
 
         // E2E test mode - skip actual Gun.js initialization
-        if (isE2EMode) {
+        if (getIsE2EMode()) {
             logger.info(LogCategory.GUN, 'E2E mode - skipping Gun.js initialization');
             this.initialized = true;
             this.setConnectionState('connected');

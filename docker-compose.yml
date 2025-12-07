@@ -5,11 +5,13 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_STORAGE_API: http://localhost:3001
+        NEXT_PUBLIC_GUN_RELAY: ws://localhost:8765/gun
     ports:
       - "3002:3000"
     environment:
       - PORT=3000
       - HOSTNAME=0.0.0.0
+      - NEXT_PUBLIC_GUN_RELAY=ws://localhost:8765/gun
     depends_on:
       - storage
       - relay
@@ -51,7 +53,7 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -61,16 +63,16 @@ services:
   ipfs:
     image: ipfs/kubo:latest
     ports:
-      - "4001:4001"      # P2P swarm
-      - "4001:4001/udp"  # P2P swarm UDP
-      - "5001:5001"      # API
-      - "8080:8080"      # Gateway
+      - "4001:4001" # P2P swarm
+      - "4001:4001/udp" # P2P swarm UDP
+      - "5001:5001" # API
+      - "8080:8080" # Gateway
     environment:
       - IPFS_PROFILE=server
     volumes:
       - ipfs_data:/data/ipfs
     healthcheck:
-      test: ["CMD-SHELL", "ipfs dag stat /ipfs/QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn || exit 1"]
+      test: [ "CMD-SHELL", "ipfs dag stat /ipfs/QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3

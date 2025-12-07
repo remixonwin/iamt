@@ -173,9 +173,10 @@ export class GunSeaAdapter {
     private readyPromise: Promise<void> | null = null;
     private resolveReady: (() => void) | null = null;
 
-    // E2E test mode flag - check both process.env and window for runtime detection
-    private isE2EMode = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true') ||
-        (typeof window !== 'undefined' && (window as { NEXT_PUBLIC_E2E_MODE?: string }).NEXT_PUBLIC_E2E_MODE === 'true');
+    // E2E test mode flag - check at runtime
+    private get isE2EMode(): boolean {
+        return process.env.NEXT_PUBLIC_E2E_MODE === 'true';
+    }
 
     constructor() {
         if (typeof window !== 'undefined') {
