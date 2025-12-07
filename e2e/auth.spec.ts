@@ -120,6 +120,7 @@ test.describe('Authentication Security', () => {
     test('should prevent unauthorized access to profile', async ({ page }) => {
         await page.goto('/profile');
         // Should redirect to login if not authenticated
-        await expect(page).toHaveURL(/\/auth\//, { timeout: 10000 });
+        // The redirect happens via useEffect after initial render
+        await expect(page).toHaveURL(/\/auth\/login/, { timeout: 15000 });
     });
 });

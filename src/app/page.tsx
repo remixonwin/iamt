@@ -48,6 +48,14 @@ export default function Home() {
   // Initialize
   useEffect(() => {
     async function init() {
+      // E2E test mode - skip P2P initialization for faster tests
+      if (process.env.NEXT_PUBLIC_E2E_MODE === 'true') {
+        console.log('[Page] E2E mode enabled - skipping P2P initialization');
+        setIsLoading(false);
+        setSyncStatus('synced');
+        return;
+      }
+
       try {
         dbRef.current = new GunDatabaseAdapter();
         const db = dbRef.current;

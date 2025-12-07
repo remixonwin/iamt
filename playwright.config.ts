@@ -25,7 +25,7 @@ export default defineConfig({
     /* Shared settings for all projects */
     use: {
         /* Base URL for navigation */
-        baseURL: 'http://localhost:3003',
+        baseURL: 'http://localhost:3000',
 
         /* Collect trace when retrying */
         trace: 'on-first-retry',
@@ -47,7 +47,7 @@ export default defineConfig({
 
     /* Run local dev server before starting tests */
     webServer: {
-        command: 'NEXT_PUBLIC_STORAGE_API=http://localhost:3001 npm run dev',
+        command: 'NEXT_PUBLIC_E2E_MODE=true NEXT_PUBLIC_STORAGE_API=http://localhost:3001 npm run dev',
         url: 'http://localhost:3000',
         reuseExistingServer: !process.env.CI,
         timeout: 120 * 1000,

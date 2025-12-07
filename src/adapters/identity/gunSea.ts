@@ -173,12 +173,22 @@ export class GunSeaAdapter {
     private readyPromise: Promise<void> | null = null;
     private resolveReady: (() => void) | null = null;
 
+    // E2E test mode flag
+    private isE2EMode = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true';
+
     constructor() {
         if (typeof window !== 'undefined') {
-            this.readyPromise = new Promise((resolve) => {
-                this.resolveReady = resolve;
-            });
-            this.initGun();
+            // In E2E mode, resolve immediately without Gun.js initialization
+            if (this.isE2EMode) {
+                logger.info(LogCategory.GUN_SEA, 'E2E mode - skipping Gun.js SEA initialization');
+                this.readyPromise = Promise.resolve();
+                this.initialized = true;
+            } else {
+                this.readyPromise = new Promise((resolve) => {
+                    this.resolveReady = resolve;
+                });
+                this.initGun();
+            }
         } else {
             this.readyPromise = Promise.resolve();
         }

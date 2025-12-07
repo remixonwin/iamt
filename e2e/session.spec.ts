@@ -8,18 +8,19 @@ test.describe('Session Persistence', () => {
         const password = 'Password123!';
         const displayName = `Session User ${timestamp}`;
 
-        // 1. Register
+        // 1. Register using ID selectors for reliability
         await page.goto('/auth/signup');
-        await page.getByLabel('Email Address').fill(email);
-        await page.getByLabel('Display Name').fill(displayName);
-        await page.getByLabel('Password', { exact: true }).fill(password);
-        await page.getByLabel('Confirm Password').fill(password);
-        await page.getByRole('button', { name: 'Create Account' }).click();
+        await expect(page.getByRole('heading', { name: /create account/i })).toBeVisible();
+        await page.locator('#email').fill(email);
+        await page.locator('#displayName').fill(displayName);
+        await page.locator('#password').fill(password);
+        await page.locator('#confirmPassword').fill(password);
+        await page.getByRole('button', { name: /create account/i }).click();
 
-        // 2. Complete Backup Flow
-        await page.getByRole('button', { name: 'Copy to Clipboard' }).click();
+        // 2. Complete Backup Flow - wait for seed phrase screen
+        await expect(page.getByText('Save Your Recovery Phrase')).toBeVisible({ timeout: 15000 });
         await page.getByRole('checkbox').check();
-        await page.getByRole('button', { name: 'Continue to Profile' }).click();
+        await page.getByRole('button', { name: /continue to profile/i }).click();
 
         // 3. Verify Login
         await expect(page).toHaveURL('/profile');

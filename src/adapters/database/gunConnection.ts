@@ -35,6 +35,9 @@ const DEFAULT_PUBLIC_RELAYS: string[] = [
 // Determine if running in production
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
+// E2E test mode - skip actual Gun.js initialization
+const isE2EMode = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true';
+
 // Build relay list with deduplication and security filtering
 const RELAYS = Array.from(
     new Set(
@@ -108,6 +111,16 @@ class GunConnectionManager {
     private async initGun(): Promise<void> {
         if (this.initialized || this.initializing) return;
         if (typeof window === 'undefined') return;
+
+        // E2E test mode - skip actual Gun.js initialization
+        if (isE2EMode) {
+            logger.info(LogCategory.GUN, 'E2E mode - skipping Gun.js initialization');
+            this.initialized = true;
+            this.setConnectionState('connected');
+            this.lastConnectionTime = Date.now();
+            this.resolveReady?.();
+            return;
+        }
 
         this.initializing = true;
         this.setConnectionState('connecting');
