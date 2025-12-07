@@ -157,7 +157,7 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
                     announce: [
                         'wss://tracker.openwebtorrent.com',
                         'wss://tracker.btorrent.xyz',
-                        'wss://tracker.webtorrent.dev', // Added redundant tracker
+                        'wss://tracker.webtorrent.dev',
                     ]
                 });
             } catch (err) {
@@ -165,7 +165,6 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
                 if (cid && (err instanceof Error && err.message.includes('already being seeded'))) {
                     torrent = client.get(cid);
                     if (!torrent) {
-                        // Should not happen, but reject if we can't recover
                         reject(err);
                         return;
                     }
@@ -176,14 +175,27 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             }
         }
 
+        // Validate torrent object
+        if (!torrent) {
+            reject(new Error('Failed to create torrent'));
+            return;
+        }
+
         // Define cleanup and handlers
         let timeoutId: NodeJS.Timeout;
+        let cleaned = false;
 
         const cleanup = () => {
+            if (cleaned) return;
+            cleaned = true;
             clearTimeout(timeoutId);
-            if (torrent) {
-                torrent.removeListener('done', onDone);
-                torrent.removeListener('error', onError);
+            try {
+                if (torrent && typeof torrent.removeListener === 'function') {
+                    torrent.removeListener('done', onDone);
+                    torrent.removeListener('error', onError);
+                }
+            } catch {
+                // Ignore cleanup errors
             }
         };
 
@@ -192,7 +204,7 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
             logger.info(LogCategory.P2P, 'Download complete', torrent?.infoHash);
             try {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const file = (torrent as any).files[0];
+                const file = (torrent as any).files?.[0];
                 if (!file) throw new Error('Torrent contains no files');
                 const blob = await getBlobFromFile(file);
                 resolve(blob);
@@ -208,28 +220,42 @@ export const downloadFileP2P = async (magnetURI: string): Promise<Blob> => {
 
         // If already done, resolve immediately
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((torrent as any).progress === 1) {
+        if ((torrent as any).progress === 1 && (torrent as any).files?.length > 0) {
             onDone();
             return;
         }
 
-        // Attach listeners
+        // Attach listeners - handle case where torrent is still initializing
         if (torrent && typeof torrent.on === 'function') {
             torrent.on('done', onDone);
             torrent.on('error', onError);
+        } else if (torrent && typeof torrent.once === 'function') {
+            // Try once() method
+            torrent.once('done', onDone);
+            torrent.once('error', onError);
         } else {
-            reject(new Error('Invalid torrent object'));
-            return;
+            // Torrent object may not be ready yet - wait a moment and retry
+            logger.warn(LogCategory.P2P, 'Torrent not ready, waiting...', { hasOn: typeof torrent?.on });
+            await new Promise(r => setTimeout(r, 500));
+
+            if (torrent && typeof torrent.on === 'function') {
+                torrent.on('done', onDone);
+                torrent.on('error', onError);
+            } else {
+                reject(new Error('Invalid torrent object - initialization failed'));
+                return;
+            }
         }
 
         // Timeout using config
         timeoutId = setTimeout(() => {
             cleanup();
-            if ((torrent as any).progress < 1) {
-                // We don't destroy the torrent, just stop waiting for it
-                logger.warn(LogCategory.P2P, 'Download timeout', { progress: (torrent as any).progress });
+            const progress = (torrent as any)?.progress ?? 0;
+            if (progress < 1) {
+                logger.warn(LogCategory.P2P, 'Download timeout', { progress });
                 reject(new Error('P2P Download timeout'));
             }
         }, SYNC_CONFIG.p2p.downloadTimeout);
     });
 };
+

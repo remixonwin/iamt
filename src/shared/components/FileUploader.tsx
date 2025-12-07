@@ -265,6 +265,7 @@ export function FileUploader({
                     className="hidden"
                     disabled={disabled}
                     data-testid="file-input"
+                    aria-label="Upload files"
                 />
 
                 <div className="relative z-10 space-y-4">

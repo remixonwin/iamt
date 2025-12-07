@@ -36,7 +36,9 @@ const DEFAULT_PUBLIC_RELAYS: string[] = [
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
 // E2E test mode - skip actual Gun.js initialization
-const isE2EMode = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true';
+// Check both process.env and window for runtime detection
+const isE2EMode = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true') ||
+    (typeof window !== 'undefined' && (window as { NEXT_PUBLIC_E2E_MODE?: string }).NEXT_PUBLIC_E2E_MODE === 'true');
 
 // Build relay list with deduplication and security filtering
 const RELAYS = Array.from(

@@ -173,8 +173,9 @@ export class GunSeaAdapter {
     private readyPromise: Promise<void> | null = null;
     private resolveReady: (() => void) | null = null;
 
-    // E2E test mode flag
-    private isE2EMode = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true';
+    // E2E test mode flag - check both process.env and window for runtime detection
+    private isE2EMode = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_E2E_MODE === 'true') ||
+        (typeof window !== 'undefined' && (window as { NEXT_PUBLIC_E2E_MODE?: string }).NEXT_PUBLIC_E2E_MODE === 'true');
 
     constructor() {
         if (typeof window !== 'undefined') {
@@ -195,11 +196,19 @@ export class GunSeaAdapter {
     }
 
     /**
-     * Wait for adapter to be fully initialized
+     * Wait for adapter to be fully initialized (with timeout)
      */
-    async waitForReady(): Promise<void> {
+    async waitForReady(timeoutMs: number = 5000): Promise<void> {
         if (this.readyPromise) {
-            await this.readyPromise;
+            const timeout = new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error('GunSEA init timeout')), timeoutMs)
+            );
+            try {
+                await Promise.race([this.readyPromise, timeout]);
+            } catch {
+                // Timeout or error - continue anyway
+                logger.warn(LogCategory.GUN_SEA, 'waitForReady timeout or error, continuing');
+            }
         }
     }
 
@@ -233,6 +242,10 @@ export class GunSeaAdapter {
      * Ensure Gun.js is initialized
      */
     private async ensureGun() {
+        // In E2E mode, we don't need actual Gun.js
+        if (this.isE2EMode) {
+            return;
+        }
         if (!this.initialized && typeof window !== 'undefined') {
             await this.initGun();
         }
@@ -250,6 +263,36 @@ export class GunSeaAdapter {
 
         // Generate seed phrase
         const seedPhrase = generateSeedPhrase();
+
+        // E2E mode: create mock user without Gun.js
+        if (this.isE2EMode) {
+            const mockPubKey = btoa(request.email + Date.now()).slice(0, 32);
+            const did = publicKeyToDid(mockPubKey);
+
+            const profile: UserProfile = {
+                did,
+                publicKey: mockPubKey,
+                email: request.email,
+                displayName: request.displayName,
+                createdAt: Date.now(),
+                emailVerified: false,
+            };
+
+            const keypair: UserKeypair = {
+                did,
+                publicKey: mockPubKey,
+                encryptedPrivateKey: '',
+                passwordSalt: 'e2e-salt',
+                privateKeyIv: 'e2e-iv',
+                encryptedSeedPhrase: 'e2e-encrypted',
+                createdAt: Date.now(),
+            };
+
+            this.saveSession(profile);
+            this.currentProfile = profile;
+
+            return { user: profile, seedPhrase, keypair };
+        }
 
         // Create Gun.js user with email as alias
         return new Promise((resolve, reject) => {
