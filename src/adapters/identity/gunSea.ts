@@ -391,7 +391,14 @@ export class GunSeaAdapter {
         await new Promise<void>((resolve, reject) => {
             this.user.auth(email, password, (ack: { err?: string }) => {
                 if (ack.err) {
-                    if (ack.err.includes('Invalid data') || ack.err.includes('Number at')) {
+                    // Check for various corruption indicators
+                    const isCorruptionError = 
+                        ack.err.includes('Invalid data') || 
+                        ack.err.includes('Number at') ||
+                        ack.err.includes('Signature did not match') ||
+                        ack.err.includes('Data provided to an operation');
+                    
+                    if (isCorruptionError) {
                         this.handleCorruptedDataError(email, password).then(resolve).catch(reject);
                     } else {
                         reject(new Error(ack.err));
@@ -404,22 +411,29 @@ export class GunSeaAdapter {
     }
 
     private async handleCorruptedDataError(email: string, password: string): Promise<void> {
-        console.error('[GunSEA] Data corruption detected during auth. Attempting automatic recovery.');
+        logger.warn(LogCategory.GUN_SEA, 'Data corruption detected during auth. Attempting automatic recovery.');
 
         if (this.hasAttemptedCorruptionRecovery) {
-            throw new Error('Local identity data appears corrupted. Please clear your browser storage for this site and try again.');
+            throw new Error('Unable to authenticate. Your local data may be corrupted. Please use the "Reset Local Data" option on the login page and try again.');
         }
 
         this.hasAttemptedCorruptionRecovery = true;
+        
+        // Thorough cleanup of all potentially corrupted data
         this.clearLocalGunData();
+        this.clearSession();
+        this.currentProfile = null;
+
+        // Small delay to let localStorage operations complete
+        await new Promise(r => setTimeout(r, 100));
 
         await new Promise<void>((resolve, reject) => {
             this.user.auth(email, password, (ack: { err?: string }) => {
                 if (ack.err) {
-                    console.error('[GunSEA] Auth failed after corruption cleanup:', ack.err);
-                    reject(new Error('We had to reset your local identity data. Please sign in again.'));
+                    logger.error(LogCategory.GUN_SEA, 'Auth failed after corruption cleanup:', ack.err);
+                    reject(new Error('Authentication failed. If this is a new account, please sign up. If you have an existing account, try the "Reset Local Data" option.'));
                 } else {
-                    console.info('[GunSEA] Auth succeeded after automatic corruption cleanup.');
+                    logger.info(LogCategory.GUN_SEA, 'Auth succeeded after automatic corruption cleanup.');
                     resolve();
                 }
             });

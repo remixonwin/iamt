@@ -26,10 +26,12 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
     .filter(Boolean);
 
 // Default public relays (using wss:// for WebSocket connections)
+// Note: Many public relays are unreliable. The app works offline-first with localStorage.
+// For production, consider deploying your own relay using the /relay folder.
 const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'wss://gun-manhattan.herokuapp.com/gun',
     'wss://relay.peer.ooo/gun',
-    'wss://gun-us.herokuapp.com/gun'
+    'wss://peer.wallie.io/gun',
+    'wss://gundb-relay-mlccl.ondigitalocean.app/gun'
 ];
 
 // Default development relay for localhost (when no explicit relay configured)
@@ -146,15 +148,23 @@ class GunConnectionManager {
                 localStorage: true,
             });
 
-            // Suppress WebSocket connection errors in production
-            if (isProduction) {
-                this.gun.on('error', (err: Error | { message?: string } | null) => {
-                    // Only log critical errors, not connection failures
-                    if (!err?.message?.includes('WebSocket') && !err?.message?.includes('connection')) {
-                        logger.warn(LogCategory.GUN, 'Error', err);
-                    }
-                });
-            }
+            // Suppress WebSocket connection errors and SEA signature errors
+            // These are expected when relays are down or data is stale
+            this.gun.on('error', (err: Error | { message?: string } | null) => {
+                const msg = err?.message || String(err);
+                // Suppress known non-critical errors
+                const suppressPatterns = [
+                    'WebSocket',
+                    'connection',
+                    'Signature did not match',
+                    'Data provided to an operation',
+                    'Invalid data'
+                ];
+                const shouldSuppress = suppressPatterns.some(p => msg.includes(p));
+                if (!shouldSuppress) {
+                    logger.warn(LogCategory.GUN, 'Error', err);
+                }
+            });
 
             // Create user instance for SEA operations
             this.user = this.gun.user();

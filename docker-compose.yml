@@ -6,6 +6,7 @@ services:
       args:
         NEXT_PUBLIC_STORAGE_API: http://localhost:3001
         NEXT_PUBLIC_GUN_RELAY: ws://localhost:8765/gun
+        NEXT_PUBLIC_E2E_MODE: "true"
     ports:
       - "3002:3000"
     environment:
