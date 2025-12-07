@@ -39,6 +39,7 @@ const AuthContext = createContext<AuthContextValue>({
     recoverWithSeedPhrase: async () => { throw new Error('AuthProvider not mounted'); },
     updateProfile: async () => { throw new Error('AuthProvider not mounted'); },
     getSeedPhrase: async () => { throw new Error('AuthProvider not mounted'); },
+    resetLocalData: () => { throw new Error('AuthProvider not mounted'); },
     gunUser: null,
 });
 
@@ -379,6 +380,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }, [keypair]);
 
+    /**
+     * Reset all local identity data (for troubleshooting)
+     * Clears corrupted data and forces user to re-authenticate
+     */
+    const resetLocalData = useCallback(() => {
+        try {
+            const adapter = getGunSeaAdapter();
+            adapter.clearLocalUserData();
+            clearKeypair();
+            setKeypair(null);
+            setGunUser(null);
+            setState({
+                user: null,
+                isAuthenticated: false,
+                isLoading: false,
+                error: null,
+            });
+            console.info('[Auth] Local data reset successfully');
+        } catch (error) {
+            console.error('[Auth] Reset local data error:', error);
+        }
+    }, []);
+
     const value: AuthContextValue = {
         ...state,
         signUp,
@@ -389,6 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         recoverWithSeedPhrase,
         updateProfile,
         getSeedPhrase,
+        resetLocalData,
         gunUser,
     };
 

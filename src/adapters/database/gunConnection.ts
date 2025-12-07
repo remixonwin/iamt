@@ -25,11 +25,11 @@ const ENV_RELAYS = (process.env.NEXT_PUBLIC_GUN_RELAYS || '')
     .map((url) => url.trim())
     .filter(Boolean);
 
-// Default public relays (tested working)
+// Default public relays (using wss:// for WebSocket connections)
 const DEFAULT_PUBLIC_RELAYS: string[] = [
-    'https://relay.peer.ooo/gun',
-    'https://relay.gun.eco/gun',
-    'https://relay-us.gundb.io/gun'
+    'wss://gun-manhattan.herokuapp.com/gun',
+    'wss://relay.peer.ooo/gun',
+    'wss://gun-us.herokuapp.com/gun'
 ];
 
 // Default development relay for localhost (when no explicit relay configured)

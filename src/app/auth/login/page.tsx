@@ -14,7 +14,7 @@ import { validateSeedPhrase } from '@/adapters/identity/gunSea';
 type LoginMode = 'password' | 'seed-phrase';
 
 export default function LoginPage() {
-    const { signIn, recoverWithSeedPhrase, isLoading, error } = useAuth();
+    const { signIn, recoverWithSeedPhrase, resetLocalData, isLoading, error } = useAuth();
     
     const [mode, setMode] = useState<LoginMode>('password');
     const [email, setEmail] = useState('');
@@ -268,6 +268,30 @@ export default function LoginPage() {
                         </svg>
                         <span>Secured with end-to-end encryption</span>
                     </div>
+                </div>
+
+                {/* Troubleshooting Section */}
+                <div className="mt-4 pt-4 border-t border-white/10">
+                    <details className="text-xs text-gray-500">
+                        <summary className="cursor-pointer hover:text-gray-400 transition-colors">
+                            Having trouble signing in?
+                        </summary>
+                        <div className="mt-2 space-y-2 pl-2">
+                            <p>If you&apos;re experiencing persistent login issues, you can reset your local data:</p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (confirm('This will clear all local identity data. You will need to sign in again. Continue?')) {
+                                        resetLocalData();
+                                        window.location.reload();
+                                    }
+                                }}
+                                className="text-warning hover:text-warning/80 underline"
+                            >
+                                Reset Local Data
+                            </button>
+                        </div>
+                    </details>
                 </div>
             </div>
         </main>

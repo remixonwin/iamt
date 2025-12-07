@@ -124,6 +124,8 @@ export interface AuthContextValue extends AuthState {
     updateProfile: (updates: Partial<Pick<UserProfile, 'displayName' | 'avatarId'>>) => Promise<void>;
     /** Get seed phrase (requires password) */
     getSeedPhrase: (password: string) => Promise<string>;
+    /** Reset all local identity data (for troubleshooting) */
+    resetLocalData: () => void;
     /** Gun.js user instance for personal graph operations (cross-device sync) */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     gunUser: any;

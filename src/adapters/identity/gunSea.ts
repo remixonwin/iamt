@@ -36,14 +36,33 @@ const APP_NAMESPACE = 'iamt-identity-v1';
 const SESSION_KEY = 'iamt-session';
 
 /**
+ * Safely decode base64 string with validation
+ */
+function safeAtob(base64: string, context: string = 'data'): Uint8Array {
+    if (!base64 || typeof base64 !== 'string') {
+        throw new Error(`Invalid ${context}: empty or not a string`);
+    }
+    // Remove any whitespace and validate base64 format
+    const cleaned = base64.trim();
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) {
+        throw new Error(`Invalid ${context}: contains invalid base64 characters`);
+    }
+    try {
+        return Uint8Array.from(atob(cleaned), c => c.charCodeAt(0));
+    } catch (e) {
+        throw new Error(`Failed to decode ${context}: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+}
+
+/**
  * Convert a public key to did:key format
  * Uses base58-btc multibase encoding with ed25519-pub multicodec
  */
 export function publicKeyToDid(publicKey: string): string {
     try {
-        // Gun.js SEA uses base64-encoded keys
+        // Validate and decode the base64 public key
+        const keyBytes = safeAtob(publicKey, 'publicKey');
         // Prefix with ed25519-pub multicodec (0xed01)
-        const keyBytes = Uint8Array.from(atob(publicKey), c => c.charCodeAt(0));
         const multicodecPrefix = new Uint8Array([0xed, 0x01]);
         const prefixedKey = new Uint8Array(multicodecPrefix.length + keyBytes.length);
         prefixedKey.set(multicodecPrefix);
@@ -52,8 +71,9 @@ export function publicKeyToDid(publicKey: string): string {
         // Base58-btc encode with 'z' multibase prefix
         const encoded = bs58.encode(prefixedKey);
         return `did:key:z${encoded}`;
-    } catch {
+    } catch (err) {
         // Fallback: hash the public key
+        logger.warn(LogCategory.GUN_SEA, 'publicKeyToDid fallback due to error:', err);
         const hash = btoa(publicKey).slice(0, 32);
         return `did:key:z${hash}`;
     }
@@ -128,9 +148,18 @@ async function decryptWithPassword(encrypted: string, password: string, salt: st
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
-    const saltBytes = Uint8Array.from(atob(salt), c => c.charCodeAt(0));
-    const ivBytes = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
-    const encryptedBytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    // Validate and decode base64 inputs with safe function
+    const saltBytes = safeAtob(salt, 'salt');
+    const ivBytes = safeAtob(iv, 'iv');
+    const encryptedBytes = safeAtob(encrypted, 'encrypted data');
+
+    // Create fresh ArrayBuffers for Web Crypto API (avoids SharedArrayBuffer type issues)
+    const saltArray = new Uint8Array(saltBytes.length);
+    saltArray.set(saltBytes);
+    const ivArray = new Uint8Array(ivBytes.length);
+    ivArray.set(ivBytes);
+    const encryptedArray = new Uint8Array(encryptedBytes.length);
+    encryptedArray.set(encryptedBytes);
 
     const keyMaterial = await crypto.subtle.importKey(
         'raw',
@@ -141,7 +170,7 @@ async function decryptWithPassword(encrypted: string, password: string, salt: st
     );
 
     const key = await crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+        { name: 'PBKDF2', salt: saltArray, iterations: 100000, hash: 'SHA-256' },
         keyMaterial,
         { name: 'AES-GCM', length: 256 },
         false,
@@ -149,9 +178,9 @@ async function decryptWithPassword(encrypted: string, password: string, salt: st
     );
 
     const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: ivBytes },
+        { name: 'AES-GCM', iv: ivArray },
         key,
-        encryptedBytes
+        encryptedArray
     );
 
     return decoder.decode(decrypted);
@@ -240,7 +269,7 @@ export class GunSeaAdapter {
     }
 
     /**
-     * Ensure Gun.js is initialized
+     * Ensure Gun.js is initialized (with timeout to prevent infinite wait)
      */
     private async ensureGun() {
         // In E2E mode, we don't need actual Gun.js
@@ -250,8 +279,14 @@ export class GunSeaAdapter {
         if (!this.initialized && typeof window !== 'undefined') {
             await this.initGun();
         }
-        // Wait for Gun to be ready
+        // Wait for Gun to be ready with timeout
+        const startTime = Date.now();
+        const timeout = 10000; // 10 second timeout
         while (!this.gun || !this.SEA) {
+            if (Date.now() - startTime > timeout) {
+                logger.error(LogCategory.GUN_SEA, 'Gun.js initialization timeout after 10 seconds');
+                throw new Error('Connection timeout. Please check your network and try again.');
+            }
             await new Promise(r => setTimeout(r, 50));
         }
     }
@@ -476,16 +511,18 @@ export class GunSeaAdapter {
     }
 
     /**
-     * Clear local user data on sign out (session, backups, but preserve keys for offline access)
+     * Clear local user data on sign out (session, backups, keys, and all Gun data)
+     * This is a public method that can be called from UI for user-initiated reset
      */
     clearLocalUserData(): void {
         if (typeof window === 'undefined') return;
 
         try {
-            console.info('[GunSEA] Clearing local user data on sign out.');
+            logger.info(LogCategory.GUN_SEA, 'Clearing all local identity data');
 
             // Clear session
             this.clearSession();
+            this.currentProfile = null;
 
             // Clear Gun local data
             this.clearLocalGunData();
@@ -493,9 +530,26 @@ export class GunSeaAdapter {
             // Clear files backup to prevent cross-session access
             localStorage.removeItem('iamt-files-backup');
 
-            // Note: Keys are preserved for offline access, but access is blocked via owner checks
+            // Clear all Gun-related localStorage keys more thoroughly
+            try {
+                const keysToRemove = Object.keys(localStorage).filter(key => 
+                    key.toLowerCase().includes('gun') || 
+                    key.includes('iamt-') ||
+                    key.includes('SEA')
+                );
+                for (const key of keysToRemove) {
+                    localStorage.removeItem(key);
+                }
+            } catch {
+                // Ignore
+            }
+
+            // Reset corruption recovery flag
+            this.hasAttemptedCorruptionRecovery = false;
+
+            logger.info(LogCategory.GUN_SEA, 'Local data cleared successfully');
         } catch (error) {
-            console.warn('[GunSEA] Error clearing local user data:', error);
+            logger.error(LogCategory.GUN_SEA, 'Error clearing local user data:', error);
         }
     }
 
@@ -642,8 +696,15 @@ export class GunSeaAdapter {
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved) as RawUserProfile;
+                    // Validate required fields to detect corrupted data
+                    if (!parsed || !parsed.did || !parsed.email || typeof parsed.createdAt !== 'number') {
+                        logger.warn(LogCategory.GUN_SEA, 'Invalid session data detected, clearing');
+                        this.clearSession();
+                        return;
+                    }
                     this.currentProfile = sanitizeUserProfile(parsed);
-                } catch {
+                } catch (err) {
+                    logger.warn(LogCategory.GUN_SEA, 'Failed to parse session, clearing:', err);
                     this.clearSession();
                 }
             }
